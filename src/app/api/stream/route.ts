@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) IPTV-Player',
     Accept: '*/*',
+    Referer: (() => { try { return new URL(target).origin + '/' } catch { return '' } })(),
   }
   const range = req.headers.get('range')
   if (range) headers['Range'] = range

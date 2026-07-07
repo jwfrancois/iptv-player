@@ -13,6 +13,28 @@ interface VideoPlayerProps {
   contentType?: 'hls' | 'mp4' | 'ts' | 'auto'
 }
 
+/**
+ * When hls.js reports a fatal network error, attempt to re-fetch the manifest
+ * URL directly so we can read the X-IPTV-Reason header our proxy attaches to
+ * error responses. This lets us show "Channel forbidden" instead of generic
+ * "Network error".
+ */
+async function fetchErrorReason(src: string, code: number): Promise<string | null> {
+  try {
+    const res = await fetch(src, { method: 'GET', cache: 'no-store' })
+    if (!res.ok) {
+      const reason = res.headers.get('X-IPTV-Reason')
+      if (reason) return reason
+      if (res.status === 403) return 'Channel forbidden. Your subscription may not include this channel tier, or it is geo-restricted.'
+      if (res.status === 404) return 'Channel not found or currently offline.'
+      if (res.status >= 500) return 'Portal server error. Please try another channel.'
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 export function VideoPlayer({ src, poster, title, contentType = 'auto' }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -88,13 +110,22 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto' }: VideoP
           if (destroyed) return
           video.play().catch(() => {})
         })
-        hls.on(Hls.Events.ERROR, (_evt, data) => {
+        hls.on(Hls.Events.ERROR, async (_evt, data) => {
           if (destroyed) return
           if (data.fatal) {
             setLoading(false)
+            // For network errors, try to fetch a meaningful reason from our proxy
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response) {
+              const customReason = await fetchErrorReason(src, data.response.code)
+              if (customReason) {
+                setError(customReason)
+                hls.destroy()
+                return
+              }
+            }
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                setError('Network error loading stream. The channel may be offline.')
+                setError('Network error loading stream. The channel may be offline or geo-restricted.')
                 break
               case Hls.ErrorTypes.MEDIA_ERROR:
                 setError('Media error. Trying to recover…')

@@ -60,15 +60,34 @@ export async function GET(req: NextRequest) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) IPTV-Player',
         Accept: '*/*',
+        Referer: new URL(target).origin + '/',
       },
       cache: 'no-store',
       redirect: 'follow',
     })
 
     if (!upstream.ok) {
+      // Return a tiny but valid m3u8 that signals the error to hls.js via
+      // an HTTP error response. We pass through the upstream status so the
+      // player can show a meaningful message (403 = forbidden/geo-restricted,
+      // 404 = channel offline, etc.).
+      let reason = 'Stream unavailable'
+      if (upstream.status === 403) reason = 'Channel forbidden (subscription tier, geo-restriction, or concurrent connection limit)'
+      else if (upstream.status === 404) reason = 'Channel not found or offline'
+      else if (upstream.status === 451 || upstream.status === 452) reason = 'Channel unavailable in your region'
+      else if (upstream.status >= 500) reason = 'Portal server error — try again'
+
       return NextResponse.json(
-        { error: `Upstream ${upstream.status} ${upstream.statusText}` },
-        { status: upstream.status }
+        { error: reason, upstreamStatus: upstream.status },
+        {
+          status: upstream.status,
+          headers: {
+            'X-IPTV-Error': 'true',
+            'X-IPTV-Reason': reason,
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Expose-Headers': 'X-IPTV-Error, X-IPTV-Reason',
+          },
+        }
       )
     }
 
