@@ -155,12 +155,15 @@ export function ChannelSidebar({
                   const poster = buildProxiedImageUrl(rawPoster)
                   const isSel = String(selectedItemId) === String(id)
                   const isFav = favorites.has(favKey(it))
+                  const hasArchive = kind === 'live' && (it as LiveStream).tv_archive === 1
                   return (
                     <li
                       key={id}
                       className={cn(
-                        'group flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-accent/60 transition-colors w-full',
-                        isSel && 'bg-accent'
+                        'group flex items-center gap-2.5 px-2.5 py-2 cursor-pointer transition-all w-full border-l-2',
+                        isSel
+                          ? 'bg-accent border-primary'
+                          : 'border-transparent hover:bg-accent/40 hover:border-muted-foreground/30'
                       )}
                       onClick={() =>
                         onSelectItem({
@@ -172,9 +175,8 @@ export function ChannelSidebar({
                         })
                       }
                     >
-                      <div className="h-9 w-9 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
+                      <div className="h-10 w-10 shrink-0 rounded-md bg-muted overflow-hidden flex items-center justify-center ring-1 ring-black/5 dark:ring-white/5">
                         {poster ? (
-                           
                           <img
                             src={poster}
                             alt=""
@@ -188,17 +190,29 @@ export function ChannelSidebar({
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">{it.name}</p>
-                        {kind === 'live' && (it as LiveStream).epg_channel_id && (
-                          <p className="text-[10px] text-muted-foreground truncate">
-                            EPG: {(it as LiveStream).epg_channel_id}
-                          </p>
-                        )}
-                        {kind === 'vod' && (it as VodStream).rating && (
-                          <p className="text-[10px] text-muted-foreground">
-                            ★ {(it as VodStream).rating}
-                          </p>
-                        )}
+                        <p className={cn(
+                          'text-xs font-medium truncate leading-tight',
+                          isSel && 'text-primary'
+                        )}>
+                          {it.name}
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {hasArchive && (
+                            <span className="text-[9px] px-1 py-0 rounded bg-blue-500/20 text-blue-600 dark:text-blue-400 font-medium" title="Catch-up available">
+                              ↺
+                            </span>
+                          )}
+                          {kind === 'live' && (it as LiveStream).epg_channel_id && (
+                            <p className="text-[10px] text-muted-foreground/70 truncate">
+                              {(it as LiveStream).epg_channel_id}
+                            </p>
+                          )}
+                          {kind === 'vod' && (it as VodStream).rating && (
+                            <p className="text-[10px] text-yellow-600 dark:text-yellow-400">
+                              ★ {(it as VodStream).rating}
+                            </p>
+                          )}
+                        </div>
                       </div>
                       <button
                         onClick={(e) => {

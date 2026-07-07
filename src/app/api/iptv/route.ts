@@ -30,12 +30,16 @@ export async function GET(req: NextRequest) {
   const categoryId = sp.get('category_id') || ''
   const vodId = sp.get('vod_id') || ''
   const seriesId = sp.get('series_id') || ''
+  const streamId = sp.get('stream_id') || ''
+  const epgPeriod = sp.get('limit') || ''
 
   const params = new URLSearchParams({ username, password })
   if (action) params.set('action', action)
   if (categoryId) params.set('category_id', categoryId)
   if (vodId) params.set('vod_id', vodId)
   if (seriesId) params.set('series_id', seriesId)
+  if (streamId) params.set('stream_id', streamId)
+  if (epgPeriod) params.set('limit', epgPeriod)
 
   const target = `${portal}/player_api.php?${params.toString()}`
   try {

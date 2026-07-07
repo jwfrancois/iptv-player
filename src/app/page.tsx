@@ -25,11 +25,15 @@ import { VideoPlayer } from '@/components/iptv/video-player'
 import { SeriesDialog } from '@/components/iptv/series-dialog'
 import { VodDialog } from '@/components/iptv/vod-dialog'
 import { SettingsDialog } from '@/components/iptv/settings-dialog'
+import { EpgPanel } from '@/components/iptv/epg-panel'
+import { RecentStrip } from '@/components/iptv/recent-strip'
+import { HeroBanner } from '@/components/iptv/hero-banner'
 import {
   DEFAULT_CONFIG,
   useIptvApi,
   type PortalConfig,
 } from '@/lib/iptv/useIptvApi'
+import { useRecentChannels } from '@/lib/iptv/useRecentChannels'
 import {
   buildLiveStreamUrl,
   buildProxiedHlsUrl,
@@ -103,6 +107,12 @@ export default function IPTVPage() {
   const [playerTitle, setPlayerTitle] = useState<string>('')
   const [playerPoster, setPlayerPoster] = useState<string | undefined>(undefined)
   const [playerContentType, setPlayerContentType] = useState<'hls' | 'mp4' | 'ts' | 'auto'>('auto')
+
+  // Recently watched channels
+  const { recent, addRecent, clearRecent } = useRecentChannels()
+
+  // EPG fetcher bound to current config
+  const getShortEpg = iptv.getShortEpg
 
   // Dialog state for VOD and Series info
   const [vodDialog, setVodDialog] = useState<{ open: boolean; id: string | null; name: string; poster?: string; ext?: string }>({
@@ -190,6 +200,12 @@ export default function IPTVPage() {
         setPlayerTitle(sel.name)
         setPlayerPoster(buildProxiedImageUrl(sel.poster))
         setPlayerContentType('hls')
+        // Add to recently watched
+        addRecent({
+          id: sel.id,
+          name: sel.name,
+          poster: sel.poster,
+        })
       } else if (sel.kind === 'vod') {
         // Open VOD info dialog
         setVodDialog({ open: true, id: String(sel.id), name: sel.name, poster: sel.poster, ext: sel.ext })
@@ -198,7 +214,7 @@ export default function IPTVPage() {
         setSeriesDialog({ open: true, id: String(sel.id), name: sel.name })
       }
     },
-    [config]
+    [config, addRecent]
   )
 
   const handlePlayVod = useCallback(
@@ -405,6 +421,23 @@ export default function IPTVPage() {
             </div>
           )}
 
+          {/* Recently watched strip (only on Live TV tab) */}
+          {isAuthed && activeTab === 'live' && (
+            <RecentStrip
+              recent={recent}
+              currentId={currentSelection?.kind === 'live' ? currentSelection.id : null}
+              onSelect={(ch) => {
+                handleSelectItem({
+                  kind: 'live',
+                  id: ch.id,
+                  name: ch.name,
+                  poster: ch.poster,
+                })
+              }}
+              onClear={clearRecent}
+            />
+          )}
+
           <div className="flex-1 min-h-0">
             {isAuthed ? (
               <ChannelSidebar
@@ -457,65 +490,72 @@ export default function IPTVPage() {
             )}
           </div>
 
-          {/* Now playing / info bar */}
+          {/* Hero banner with current channel + EPG (Netflix style) */}
+          {currentSelection && currentSelection.kind === 'live' && (
+            <HeroBanner
+              channelName={currentSelection.name}
+              channelPoster={currentSelection.poster}
+              categoryName="Live TV"
+              streamId={currentSelection.id}
+              fetcher={getShortEpg}
+            />
+          )}
+
+          {/* Below player: EPG panel + account info */}
           <div className="flex-1 overflow-auto bg-background">
             {currentSelection ? (
-              <div className="p-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="h-12 w-12 rounded bg-muted overflow-hidden flex items-center justify-center">
-                    {currentSelection.poster ? (
-                       
-                      <img
-                        src={currentSelection.poster}
-                        alt=""
-                        className="h-full w-full object-cover"
-                        onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
-                      />
-                    ) : (
-                      <Radio className="h-5 w-5 text-muted-foreground" />
-                    )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
+                {/* EPG Panel (live channels only) */}
+                {currentSelection.kind === 'live' ? (
+                  <div className="border-r">
+                    <EpgPanel
+                      streamId={currentSelection.id}
+                      fetcher={getShortEpg}
+                    />
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{currentSelection.name}</p>
+                ) : (
+                  <div className="p-4 border-r">
+                    <p className="text-sm font-medium truncate mb-1">{currentSelection.name}</p>
                     <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      {currentSelection.kind === 'live'
-                        ? 'Live TV'
-                        : currentSelection.kind === 'vod'
-                        ? 'Movie'
-                        : 'Series Episode'}
+                      {currentSelection.kind === 'vod' ? 'Movie' : 'Series Episode'}
                     </p>
                   </div>
-                </div>
+                )}
 
                 {/* Account status */}
-                {auth && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
-                    <div className="rounded border p-2.5">
-                      <p className="text-[10px] uppercase text-muted-foreground">Status</p>
-                      <p className="text-sm font-medium">{auth.user_info.status || 'Active'}</p>
+                <div className="p-4">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
+                    Account Status
+                  </p>
+                  {auth && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded border p-2.5">
+                        <p className="text-[10px] uppercase text-muted-foreground">Status</p>
+                        <p className="text-sm font-medium">{auth.user_info.status || 'Active'}</p>
+                      </div>
+                      <div className="rounded border p-2.5">
+                        <p className="text-[10px] uppercase text-muted-foreground">Connections</p>
+                        <p className="text-sm font-medium">
+                          {auth.user_info.active_cons} / {auth.user_info.max_connections}
+                        </p>
+                      </div>
+                      <div className="rounded border p-2.5">
+                        <p className="text-[10px] uppercase text-muted-foreground">Expires</p>
+                        <p className="text-sm font-medium">
+                          {auth.user_info.exp_date
+                            ? new Date(Number(auth.user_info.exp_date) * 1000).toLocaleDateString()
+                            : '—'}
+                        </p>
+                      </div>
+                      <div className="rounded border p-2.5">
+                        <p className="text-[10px] uppercase text-muted-foreground">Trial</p>
+                        <p className="text-sm font-medium">
+                          {auth.user_info.is_trial === '1' ? 'Yes' : 'No'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="rounded border p-2.5">
-                      <p className="text-[10px] uppercase text-muted-foreground">Connections</p>
-                      <p className="text-sm font-medium">
-                        {auth.user_info.active_cons} / {auth.user_info.max_connections}
-                      </p>
-                    </div>
-                    <div className="rounded border p-2.5">
-                      <p className="text-[10px] uppercase text-muted-foreground">Expires</p>
-                      <p className="text-sm font-medium">
-                        {auth.user_info.exp_date
-                          ? new Date(Number(auth.user_info.exp_date) * 1000).toLocaleDateString()
-                          : '—'}
-                      </p>
-                    </div>
-                    <div className="rounded border p-2.5">
-                      <p className="text-[10px] uppercase text-muted-foreground">Trial</p>
-                      <p className="text-sm font-medium">
-                        {auth.user_info.is_trial === '1' ? 'Yes' : 'No'}
-                      </p>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             ) : (
               <div className="p-6 text-sm text-muted-foreground">
@@ -523,8 +563,8 @@ export default function IPTVPage() {
                 <p className="text-xs leading-relaxed">
                   Browse Live TV, Movies, and Series from the sidebar. Use the search box to find
                   channels by name. Click the star icon next to any item to save it to your
-                  favorites for quick access. All streams are proxied through this server to bypass
-                  CORS restrictions.
+                  favorites for quick access. Recently watched channels appear at the top of the
+                  sidebar — one click to jump back.
                 </p>
               </div>
             )}

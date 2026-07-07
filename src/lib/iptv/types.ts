@@ -157,6 +157,75 @@ export interface SeriesInfo {
   episodes: Record<string, SeriesInfoEpisode[]>
 }
 
+/** Single EPG program entry from get_short_epg. Note: title and description
+ * come base64-encoded from the portal — we decode them client-side. */
+export interface RawEpgProgram {
+  id: string
+  epg_id: string
+  title: string // base64-encoded
+  lang?: string
+  start: string // "2026-07-07 18:30:00"
+  end: string
+  description: string // base64-encoded
+  channel_id: string
+  start_timestamp: string // epoch seconds as string
+  stop_timestamp: string
+}
+
+export interface EpgProgram {
+  id: string
+  epg_channel_id: string
+  title: string
+  description: string
+  start_timestamp: string
+  stop_timestamp: string
+  start: number // epoch seconds
+  end: number
+  now_playing: boolean
+  has_archive: boolean
+}
+
+/** Response shape for get_short_epg. */
+export interface ShortEpgResponse {
+  epg_listings: RawEpgProgram[]
+}
+
+/** Decode a base64 string safely (handles both standard and url-safe variants). */
+export function decodeB64(s: string): string {
+  if (!s) return ''
+  try {
+    // Convert url-safe base64 to standard
+    const std = s.replace(/-/g, '+').replace(/_/g, '/')
+    // Pad to length multiple of 4
+    const padded = std.padEnd(std.length + (4 - (std.length % 4)) % 4, '=')
+    const decoded = atob(padded)
+    // Handle UTF-8
+    try {
+      return decodeURIComponent(escape(decoded))
+    } catch {
+      return decoded
+    }
+  } catch {
+    return s // fallback: return raw string
+  }
+}
+
+/** Convert a RawEpgProgram (base64-encoded) into a decoded EpgProgram. */
+export function decodeEpgProgram(raw: RawEpgProgram): EpgProgram {
+  return {
+    id: raw.id,
+    epg_channel_id: raw.channel_id,
+    title: decodeB64(raw.title),
+    description: decodeB64(raw.description),
+    start_timestamp: raw.start_timestamp,
+    stop_timestamp: raw.stop_timestamp,
+    start: Number(raw.start_timestamp),
+    end: Number(raw.stop_timestamp),
+    now_playing: false, // computed at runtime
+    has_archive: false,
+  }
+}
+
 /** Build a stream URL for live channels. */
 export function buildLiveStreamUrl(
   portal: string,

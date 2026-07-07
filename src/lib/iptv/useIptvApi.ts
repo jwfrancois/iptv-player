@@ -4,12 +4,15 @@ import { useCallback, useEffect, useState } from 'react'
 import type {
   AuthResponse,
   Category,
+  EpgProgram,
   LiveStream,
   Series,
   SeriesInfo,
+  ShortEpgResponse,
   VodInfo,
   VodStream,
 } from './types'
+import { decodeEpgProgram } from './types'
 
 export interface PortalConfig {
   portal: string
@@ -130,6 +133,15 @@ export function useIptvApi() {
       api<SeriesInfo>(config, { action: 'get_series_info', series_id: seriesId }),
     [config]
   )
+  const getShortEpg = useCallback(
+    (streamId: string | number) =>
+      api<ShortEpgResponse>(config, {
+        action: 'get_short_epg',
+        stream_id: String(streamId),
+        limit: '10',
+      }).then((res) => (res.epg_listings || []).map(decodeEpgProgram)),
+    [config]
+  )
 
   const updateConfig = useCallback((next: PortalConfig) => {
     setConfig(next)
@@ -151,5 +163,6 @@ export function useIptvApi() {
     getSeriesCategories,
     getSeries,
     getSeriesInfo,
+    getShortEpg,
   }
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Hls from 'hls.js'
-import { Loader2, AlertCircle, Maximize2, Volume2, VolumeX, Play, Pause, Activity, Zap } from 'lucide-react'
+import { Loader2, AlertCircle, Maximize2, Volume2, VolumeX, Play, Pause, Activity, Zap, PictureInPicture2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 
@@ -336,6 +336,22 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto' }: VideoP
     }
   }
 
+  const togglePiP = async () => {
+    const v = videoRef.current
+    if (!v) return
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture()
+      } else if (document.pictureInPictureEnabled && !v.disablePictureInPicture) {
+        await v.requestPictureInPicture()
+      }
+    } catch {
+      // PiP not supported or denied — silently ignore
+    }
+  }
+
+  const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled
+
   // Buffer health color: green >10s, yellow 3-10s, red <3s
   const bufferColor = bufferHealth > 10 ? 'text-green-400' : bufferHealth > 3 ? 'text-yellow-400' : 'text-red-400'
 
@@ -466,11 +482,23 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto' }: VideoP
             />
             <div className="ml-auto flex items-center gap-2">
               <span className="text-xs text-white/70 uppercase tracking-wide">{detectedType}</span>
+              {pipSupported && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={togglePiP}
+                  className="h-9 w-9 text-white hover:bg-white/20"
+                  title="Picture in Picture"
+                >
+                  <PictureInPicture2 className="h-5 w-5" />
+                </Button>
+              )}
               <Button
                 size="icon"
                 variant="ghost"
                 onClick={toggleFullscreen}
                 className="h-9 w-9 text-white hover:bg-white/20"
+                title="Fullscreen"
               >
                 <Maximize2 className="h-5 w-5" />
               </Button>
