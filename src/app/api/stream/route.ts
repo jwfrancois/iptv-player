@@ -35,7 +35,10 @@ export async function GET(req: NextRequest) {
     if (!upstream.ok && upstream.status !== 206) {
       return NextResponse.json(
         { error: `Upstream ${upstream.status} ${upstream.statusText}`, url: target },
-        { status: upstream.status }
+        {
+          status: upstream.status,
+          headers: { 'Cache-Control': 'no-store' },
+        }
       )
     }
 
@@ -44,7 +47,9 @@ export async function GET(req: NextRequest) {
     resHeaders.set('Access-Control-Allow-Origin', '*')
     resHeaders.set('Access-Control-Allow-Headers', 'Range')
     resHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges')
-    resHeaders.set('Cache-Control', 'no-store')
+    // Cache segments for 60s — helps hls.js retries without hitting portal again.
+    // Live TS segments are immutable once produced, so this is safe.
+    resHeaders.set('Cache-Control', 'public, max-age=60')
 
     const ct = upstream.headers.get('content-type')
     if (ct) resHeaders.set('Content-Type', ct)
