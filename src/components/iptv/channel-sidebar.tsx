@@ -1,0 +1,227 @@
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
+import { Search, Star, Tv, Film, MonitorPlay, ChevronRight, Loader2 } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { buildProxiedImageUrl } from '@/lib/iptv/types'
+import type { Category, LiveStream, Series, VodStream } from '@/lib/iptv/types'
+
+export type ContentKind = 'live' | 'vod' | 'series'
+
+export interface SidebarSelection {
+  kind: ContentKind
+  // For live: streamId, for vod: vodId, for series: seriesId
+  id: string | number
+  name: string
+  poster?: string
+  ext?: string
+}
+
+interface SidebarProps {
+  kind: ContentKind
+  categories: Category[]
+  items: LiveStream[] | VodStream[] | Series[]
+  loadingItems: boolean
+  selectedCategoryId: string | null
+  onSelectCategory: (id: string | null) => void
+  selectedItemId: string | number | null
+  onSelectItem: (sel: SidebarSelection) => void
+  favorites: Set<string>
+  onToggleFavorite: (key: string) => void
+  showFavoritesOnly: boolean
+  onToggleFavoritesOnly: (v: boolean) => void
+}
+
+const FAV_KEY_PREFIX: Record<ContentKind, string> = {
+  live: 'live',
+  vod: 'vod',
+  series: 'series',
+}
+
+export function ChannelSidebar({
+  kind,
+  categories,
+  items,
+  loadingItems,
+  selectedCategoryId,
+  onSelectCategory,
+  selectedItemId,
+  onSelectItem,
+  favorites,
+  onToggleFavorite,
+  showFavoritesOnly,
+  onToggleFavoritesOnly,
+}: SidebarProps) {
+  const [search, setSearch] = useState('')
+  const [openCats, setOpenCats] = useState(true)
+
+  // Filtered items based on search
+  const filtered = useMemo(() => {
+    if (!search.trim()) return items
+    const q = search.toLowerCase()
+    return items.filter((it: any) => (it.name || '').toLowerCase().includes(q))
+  }, [items, search])
+
+  const favKey = (it: any) => `${FAV_KEY_PREFIX[kind]}:${it.stream_id ?? it.series_id}`
+
+  const visibleItems = useMemo(() => {
+    if (!showFavoritesOnly) return filtered
+    return filtered.filter((it: any) => favorites.has(favKey(it)))
+  }, [filtered, showFavoritesOnly, favorites])
+
+  const kindIcon = kind === 'live' ? Tv : kind === 'vod' ? Film : MonitorPlay
+  const KindIcon = kindIcon
+
+  return (
+    <div className="flex h-full flex-col bg-card/50 border-r">
+      {/* Search */}
+      <div className="p-3 border-b space-y-2">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder={`Search ${kind}…`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 h-9"
+          />
+        </div>
+        <Button
+          variant={showFavoritesOnly ? 'default' : 'outline'}
+          size="sm"
+          className="w-full"
+          onClick={() => onToggleFavoritesOnly(!showFavoritesOnly)}
+        >
+          <Star className={cn('h-4 w-4 mr-1.5', showFavoritesOnly && 'fill-current')} />
+          {showFavoritesOnly ? 'Showing Favorites' : 'Show Favorites'}
+        </Button>
+      </div>
+
+      <div className="flex flex-1 min-h-0">
+        {/* Category column */}
+        <div className="w-44 shrink-0 border-r overflow-hidden">
+          <button
+            className="w-full px-3 py-2 text-left text-xs font-semibold uppercase text-muted-foreground hover:bg-accent"
+            onClick={() => onSelectCategory(null)}
+          >
+            All {kind === 'live' ? 'Channels' : kind === 'vod' ? 'Movies' : 'Series'}
+          </button>
+          <ScrollArea className="h-[calc(100vh-220px)]">
+            <div className="py-1">
+              {categories.map((c) => (
+                <button
+                  key={c.category_id}
+                  onClick={() => onSelectCategory(c.category_id)}
+                  className={cn(
+                    'w-full px-3 py-1.5 text-left text-xs truncate hover:bg-accent transition-colors',
+                    selectedCategoryId === c.category_id && 'bg-accent font-medium'
+                  )}
+                  title={c.category_name}
+                >
+                  {c.category_name}
+                </button>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+
+        {/* Items column */}
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="h-[calc(100vh-220px)] overflow-y-auto overflow-x-hidden">
+            {loadingItems ? (
+              <div className="flex items-center justify-center p-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : visibleItems.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                {showFavoritesOnly
+                  ? 'No favorites yet. Tap the star icon to add one.'
+                  : search
+                  ? `No results for "${search}"`
+                  : 'No items in this category.'}
+              </div>
+            ) : (
+              <ul className="divide-y">
+                {visibleItems.map((it: any) => {
+                  const id = it.stream_id ?? it.series_id
+                  const rawPoster =
+                    kind === 'live'
+                      ? it.stream_icon
+                      : kind === 'vod'
+                      ? it.stream_icon
+                      : it.cover
+                  const poster = buildProxiedImageUrl(rawPoster)
+                  const isSel = String(selectedItemId) === String(id)
+                  const isFav = favorites.has(favKey(it))
+                  return (
+                    <li
+                      key={id}
+                      className={cn(
+                        'group flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-accent/60 transition-colors w-full',
+                        isSel && 'bg-accent'
+                      )}
+                      onClick={() =>
+                        onSelectItem({
+                          kind,
+                          id,
+                          name: it.name,
+                          poster,
+                          ext: it.container_extension,
+                        })
+                      }
+                    >
+                      <div className="h-9 w-9 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
+                        {poster ? (
+                           
+                          <img
+                            src={poster}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              ;(e.target as HTMLImageElement).style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <KindIcon className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{it.name}</p>
+                        {kind === 'live' && (it as LiveStream).epg_channel_id && (
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            EPG: {(it as LiveStream).epg_channel_id}
+                          </p>
+                        )}
+                        {kind === 'vod' && (it as VodStream).rating && (
+                          <p className="text-[10px] text-muted-foreground">
+                            ★ {(it as VodStream).rating}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onToggleFavorite(favKey(it))
+                        }}
+                        className={cn(
+                          'p-1 rounded hover:bg-accent-foreground/10 transition-colors',
+                          isFav ? 'text-yellow-500' : 'text-muted-foreground/50'
+                        )}
+                        aria-label="Toggle favorite"
+                      >
+                        <Star className={cn('h-3.5 w-3.5', isFav && 'fill-current')} />
+                      </button>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-foreground" />
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
