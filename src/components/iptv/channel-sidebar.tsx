@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Star, Tv, Film, MonitorPlay, ChevronRight, Loader2 } from 'lucide-react'
+import { Search, Star, Tv, Film, MonitorPlay, ChevronRight, Loader2, Grid3x3 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,10 @@ interface SidebarProps {
   onToggleFavorite: (key: string) => void
   showFavoritesOnly: boolean
   onToggleFavoritesOnly: (v: boolean) => void
+  /** Optional: add to Multi-View mosaic (live channels only). */
+  onAddToMosaic?: (sel: SidebarSelection) => void
+  /** IDs already in the mosaic (to show indicator). */
+  mosaicIds?: Set<string>
 }
 
 const FAV_KEY_PREFIX: Record<ContentKind, string> = {
@@ -54,6 +58,8 @@ export function ChannelSidebar({
   onToggleFavorite,
   showFavoritesOnly,
   onToggleFavoritesOnly,
+  onAddToMosaic,
+  mosaicIds,
 }: SidebarProps) {
   const [search, setSearch] = useState('')
   const [openCats, setOpenCats] = useState(true)
@@ -227,6 +233,30 @@ export function ChannelSidebar({
                       >
                         <Star className={cn('h-3.5 w-3.5', isFav && 'fill-current')} />
                       </button>
+                      {onAddToMosaic && kind === 'live' && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onAddToMosaic({
+                              kind,
+                              id,
+                              name: it.name,
+                              poster,
+                              ext: it.container_extension,
+                            })
+                          }}
+                          className={cn(
+                            'p-1 rounded hover:bg-accent-foreground/10 transition-colors',
+                            mosaicIds?.has(String(id))
+                              ? 'text-primary'
+                              : 'text-muted-foreground/50'
+                          )}
+                          aria-label="Add to Multi-View"
+                          title="Add to Multi-View"
+                        >
+                          <Grid3x3 className={cn('h-3.5 w-3.5')} />
+                        </button>
+                      )}
                       <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-foreground" />
                     </li>
                   )

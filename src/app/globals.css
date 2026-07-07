@@ -120,3 +120,92 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ============================================================
+   Cinematic animations for IPTV player
+   ============================================================ */
+
+/* Channel switch crossfade — fades the video container in on src change */
+@keyframes cinematic-fade-in {
+  from {
+    opacity: 0;
+    transform: scale(1.02);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-cinematic-fade {
+  animation: cinematic-fade-in 0.5s ease-out;
+}
+
+/* Ken Burns slow zoom for hero banner backdrop */
+@keyframes ken-burns {
+  0% {
+    transform: scale(1.1) translate(0, 0);
+  }
+  50% {
+    transform: scale(1.18) translate(-1%, 1%);
+  }
+  100% {
+    transform: scale(1.1) translate(0, 0);
+  }
+}
+.animate-ken-burns {
+  animation: ken-burns 20s ease-in-out infinite;
+}
+
+/* Slide-in from bottom for hero banner content */
+@keyframes slide-up-fade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-slide-up {
+  animation: slide-up-fade 0.5s ease-out both;
+}
+
+/* Ripple effect on button click */
+@keyframes ripple {
+  0% {
+    transform: scale(0);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+.ripple-effect {
+  position: absolute;
+  border-radius: 50%;
+  background: currentColor;
+  pointer-events: none;
+  animation: ripple 0.6s ease-out;
+}
+
+/* Custom scrollbar for channel lists */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--muted-foreground) / 0.3);
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground) / 0.5);
+}

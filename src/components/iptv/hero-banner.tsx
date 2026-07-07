@@ -31,14 +31,17 @@ export function HeroBanner({
   const poster = buildProxiedImageUrl(channelPoster)
 
   return (
-    <div className="relative overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black border-b">
-      {/* Background: blurred poster as backdrop */}
+    <div
+      key={streamId ? String(streamId) : 'none'}
+      className="relative overflow-hidden bg-gradient-to-br from-zinc-900 via-zinc-950 to-black border-b animate-cinematic-fade"
+    >
+      {/* Background: blurred poster as backdrop with Ken Burns zoom */}
       {poster && (
-        <div className="absolute inset-0">
+        <div className="absolute inset-0 overflow-hidden">
           <img
             src={poster}
             alt=""
-            className="w-full h-full object-cover scale-110 blur-2xl opacity-30"
+            className="w-full h-full object-cover scale-110 blur-2xl opacity-30 animate-ken-burns"
             onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')}
           />
           <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-950/80 to-zinc-950/40" />
@@ -46,7 +49,7 @@ export function HeroBanner({
         </div>
       )}
 
-      <div className="relative flex gap-4 p-4 md:p-5">
+      <div className="relative flex gap-4 p-4 md:p-5 animate-slide-up">
         {/* Channel poster (large, sharp) */}
         <div className="shrink-0">
           <div className="h-24 w-24 md:h-32 md:w-32 rounded-lg overflow-hidden bg-zinc-800 border border-white/10 shadow-xl">

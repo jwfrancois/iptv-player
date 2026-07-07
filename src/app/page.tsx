@@ -12,6 +12,7 @@ import {
   RefreshCw,
   AlertCircle,
   Radio,
+  Grid3x3,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -28,6 +29,7 @@ import { SettingsDialog } from '@/components/iptv/settings-dialog'
 import { EpgPanel } from '@/components/iptv/epg-panel'
 import { RecentStrip } from '@/components/iptv/recent-strip'
 import { HeroBanner } from '@/components/iptv/hero-banner'
+import { MosaicView, type MosaicTile } from '@/components/iptv/mosaic-view'
 import {
   DEFAULT_CONFIG,
   useIptvApi,
@@ -113,6 +115,11 @@ export default function IPTVPage() {
 
   // EPG fetcher bound to current config
   const getShortEpg = iptv.getShortEpg
+
+  // Multi-View mosaic state
+  const [mosaicOpen, setMosaicOpen] = useState(false)
+  const [mosaicTiles, setMosaicTiles] = useState<MosaicTile[]>([])
+  const MOSAIC_MAX = 9
 
   // Dialog state for VOD and Series info
   const [vodDialog, setVodDialog] = useState<{ open: boolean; id: string | null; name: string; poster?: string; ext?: string }>({
@@ -217,6 +224,45 @@ export default function IPTVPage() {
     [config, addRecent]
   )
 
+  // Multi-View mosaic handlers
+  const addToMosaic = useCallback(
+    (sel: SidebarSelection) => {
+      if (sel.kind !== 'live') return
+      const rawUrl = buildLiveStreamUrl(config.portal, config.username, config.password, sel.id, 'm3u8')
+      const tile: MosaicTile = {
+        id: sel.id,
+        name: sel.name,
+        poster: sel.poster,
+        streamUrl: buildProxiedHlsUrl(rawUrl),
+        contentType: 'hls',
+      }
+      setMosaicTiles((prev) => {
+        if (prev.some((t) => String(t.id) === String(tile.id))) return prev
+        if (prev.length >= MOSAIC_MAX) {
+          // Replace oldest
+          return [...prev.slice(1), tile]
+        }
+        return [...prev, tile]
+      })
+      setMosaicOpen(true)
+    },
+    [config]
+  )
+
+  const removeFromMosaic = useCallback((id: string | number) => {
+    setMosaicTiles((prev) => prev.filter((t) => String(t.id) !== String(id)))
+  }, [])
+
+  const promoteFromMosaic = useCallback((tile: MosaicTile) => {
+    // Send mosaic tile to main player
+    handleSelectItem({
+      kind: 'live',
+      id: tile.id,
+      name: tile.name,
+      poster: tile.poster,
+    })
+  }, [handleSelectItem])
+
   const handlePlayVod = useCallback(
     (title: string) => {
       if (!vodDialog.id) return
@@ -297,6 +343,21 @@ export default function IPTVPage() {
     return seriesCats
   }, [activeTab, liveCats, vodCats, seriesCats])
 
+  // Detect if the currently-playing live channel is a music channel.
+  // We look up the channel's category_id in liveCats and check if the category
+  // name contains "music" (case-insensitive).
+  const isMusicChannel = useMemo(() => {
+    if (!currentSelection || currentSelection.kind !== 'live') return false
+    const channel = liveStreams.find((s) => String(s.stream_id) === String(currentSelection.id))
+    if (!channel) return false
+    const cat = liveCats.find((c) => c.category_id === String(channel.category_id))
+    if (!cat) return false
+    return /music/i.test(cat.category_name)
+  }, [currentSelection, liveStreams, liveCats])
+
+  // Set of channel IDs currently in the mosaic (for sidebar indicator)
+  const mosaicIds = useMemo(() => new Set(mosaicTiles.map((t) => String(t.id))), [mosaicTiles])
+
   const isAuthed = auth?.user_info?.auth === 1
   const trial = auth?.user_info?.is_trial === '1'
   const expDate = auth?.user_info?.exp_date
@@ -345,6 +406,22 @@ export default function IPTVPage() {
           </div>
 
           <div className="ml-auto flex items-center gap-1.5">
+            {isAuthed && (
+              <Button
+                variant={mosaicOpen ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setMosaicOpen((v) => !v)}
+                title="Open Multi-View mosaic"
+              >
+                <Grid3x3 className="h-3.5 w-3.5 mr-1" />
+                Multi-View
+                {mosaicTiles.length > 0 && (
+                  <span className="ml-1 px-1 rounded bg-primary-foreground/20 text-[10px]">
+                    {mosaicTiles.length}
+                  </span>
+                )}
+              </Button>
+            )}
             {isAuthed && (
               <Button
                 variant="ghost"
@@ -457,6 +534,8 @@ export default function IPTVPage() {
                 onToggleFavoritesOnly={(v) =>
                   setShowFavOnly((prev) => ({ ...prev, [activeTab]: v }))
                 }
+                onAddToMosaic={addToMosaic}
+                mosaicIds={mosaicIds}
               />
             ) : (
               <div className="p-6 text-center text-sm text-muted-foreground">
@@ -477,6 +556,7 @@ export default function IPTVPage() {
                 title={playerTitle}
                 poster={playerPoster}
                 contentType={playerContentType}
+                showVisualizer={isMusicChannel}
               />
             ) : (
               <div className="aspect-video flex flex-col items-center justify-center text-white/60 gap-3">
@@ -613,6 +693,15 @@ export default function IPTVPage() {
         seriesId={seriesDialog.id}
         seriesName={seriesDialog.name}
         onPlayEpisode={handlePlayEpisode}
+      />
+
+      <MosaicView
+        open={mosaicOpen}
+        onClose={() => setMosaicOpen(false)}
+        tiles={mosaicTiles}
+        onRemoveTile={removeFromMosaic}
+        onPromoteTile={promoteFromMosaic}
+        onClearAll={() => setMosaicTiles([])}
       />
     </div>
   )

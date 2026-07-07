@@ -2,15 +2,20 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Hls from 'hls.js'
-import { Loader2, AlertCircle, Maximize2, Volume2, VolumeX, Play, Pause, Activity, Zap, PictureInPicture2 } from 'lucide-react'
+import { Loader2, AlertCircle, Maximize2, Volume2, VolumeX, Play, Pause, Activity, Zap, PictureInPicture2, AudioLines } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
+import { AudioVisualizer } from './audio-visualizer'
+import { RadioSpinner } from './radio-spinner'
+import { cn } from '@/lib/utils'
 
 interface VideoPlayerProps {
   src: string
   poster?: string
   title?: string
   contentType?: 'hls' | 'mp4' | 'ts' | 'auto'
+  /** Show audio visualizer overlay (for music channels). */
+  showVisualizer?: boolean
 }
 
 /**
@@ -34,7 +39,7 @@ async function fetchErrorReason(src: string): Promise<string | null> {
   }
 }
 
-export function VideoPlayer({ src, poster, title, contentType = 'auto' }: VideoPlayerProps) {
+export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisualizer: showVisualizerProp = false }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -49,6 +54,9 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto' }: VideoP
   const [quality, setQuality] = useState<string>('') // e.g. "720p" or bandwidth
   const [stallCount, setStallCount] = useState(0)
   const [showSlowWarning, setShowSlowWarning] = useState(false)
+  // User can toggle visualizer on/off (defaults to prop value, but once user
+  // toggles we honor their choice)
+  const [visualizerOn, setVisualizerOn] = useState(showVisualizerProp)
 
   const detectedType: 'hls' | 'mp4' | 'ts' = (() => {
     if (contentType !== 'auto') return contentType
@@ -363,19 +371,20 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto' }: VideoP
       onMouseLeave={() => setShowControls(false)}
     >
       <video
+        key={src}
         ref={videoRef}
         poster={poster}
         playsInline
         autoPlay
-        className="w-full h-full object-contain"
+        className="w-full h-full object-contain animate-cinematic-fade"
         onClick={togglePlay}
       />
 
       {/* Loading / buffering overlay */}
       {(loading || buffering) && !error && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-2">
-          <div className="bg-black/60 rounded-full p-4">
-            <Loader2 className="h-8 w-8 animate-spin text-white" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none gap-3">
+          <div className="bg-black/50 rounded-full p-6">
+            <RadioSpinner size={48} />
           </div>
           <p className="text-white/80 text-xs">Buffering…</p>
         </div>
@@ -482,6 +491,20 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto' }: VideoP
             />
             <div className="ml-auto flex items-center gap-2">
               <span className="text-xs text-white/70 uppercase tracking-wide">{detectedType}</span>
+              {showVisualizerProp && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setVisualizerOn((v) => !v)}
+                  className={cn(
+                    'h-9 w-9 text-white hover:bg-white/20',
+                    visualizerOn && 'bg-white/20'
+                  )}
+                  title="Toggle audio visualizer"
+                >
+                  <AudioLines className="h-5 w-5" />
+                </Button>
+              )}
               {pipSupported && (
                 <Button
                   size="icon"
@@ -505,6 +528,11 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto' }: VideoP
             </div>
           </div>
         </div>
+      )}
+
+      {/* Audio visualizer overlay (music channels) */}
+      {showVisualizerProp && visualizerOn && !error && (
+        <AudioVisualizer videoRef={videoRef} enabled={true} bands={20} />
       )}
     </div>
   )
