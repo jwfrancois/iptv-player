@@ -43,10 +43,18 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const retryCountRef = useRef(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [playing, setPlaying] = useState(false)
-  const [muted, setMuted] = useState(false)
+  // Start muted on mobile/touch devices for iOS autoplay policy compliance.
+  // iOS Safari blocks autoplay with sound unless the user has interacted.
+  const [muted, setMuted] = useState(() => {
+    if (typeof window === 'undefined') return false
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    return isTouch || isIOS
+  })
   const [volume, setVolume] = useState(1)
   const [showControls, setShowControls] = useState(true)
   const [bufferHealth, setBufferHealth] = useState(0) // seconds of buffer ahead
@@ -77,6 +85,12 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
     setBuffering(true)
     setStallCount(0)
     setShowSlowWarning(false)
+    retryCountRef.current = 0
+
+    // React doesn't properly set the `muted` attribute on video elements.
+    // We must set it via the DOM API. On iOS, autoplay requires muted=true.
+    video.muted = muted
+    video.volume = volume
 
     let destroyed = false
 
@@ -244,14 +258,12 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
 
           // For network errors, try to fetch a meaningful reason from our proxy
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response) {
-            // Retry a few times before giving up — portal servers are flaky
-            const retryable = data.details === 'fragLoadError' || data.details === 'manifestLoadError'
-            if (retryable && data.frag) {
-              // hls.js already retries internally; if we get here it's exhausted
-            }
-            const customReason = await fetchErrorReason(src)
-            if (customReason) {
-              setError(customReason)
+            const statusCode = data.response.code
+            // 403/401/451 = forbidden/auth/geo — do NOT retry, show error immediately
+            // This prevents the infinite retry loop on connection-limit-exceeded channels
+            if (statusCode === 403 || statusCode === 401 || statusCode === 451 || statusCode === 452) {
+              const customReason = await fetchErrorReason(src)
+              setError(customReason || 'Channel forbidden. Try another channel or reduce active streams.')
               hls.destroy()
               return
             }
@@ -259,14 +271,21 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
 
           switch (data.type) {
             case Hls.ErrorTypes.NETWORK_ERROR:
-              // Try to recover network errors by reloading the playlist
-              setError('Network error. Attempting to recover…')
-              setTimeout(() => {
-                if (!destroyed) {
-                  setError(null)
-                  hls.startLoad()
-                }
-              }, 2000)
+              // Only retry non-403 network errors (timeouts, DNS, etc.)
+              // Use a retry counter to avoid infinite loops
+              retryCountRef.current += 1
+              if (retryCountRef.current > 3) {
+                setError('Network error. Channel may be offline — try another channel.')
+                hls.destroy()
+              } else {
+                setError(`Network error. Retrying (${retryCountRef.current}/3)…`)
+                setTimeout(() => {
+                  if (!destroyed) {
+                    setError(null)
+                    hls.startLoad()
+                  }
+                }, 2000)
+              }
               break
             case Hls.ErrorTypes.MEDIA_ERROR:
               setError('Media error. Trying to recover…')
@@ -280,7 +299,7 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
           }
         })
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari native HLS
+        // Safari/iOS native HLS — preferred on iPhone for best performance
         video.src = src
       } else {
         setError('HLS playback not supported in this browser.')
@@ -336,11 +355,30 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
 
   const toggleFullscreen = () => {
     const el = containerRef.current
-    if (!el) return
+    const v = videoRef.current
+    if (!el && !v) return
+
+    // iOS Safari only supports fullscreen on the video element via webkit API
+    // It does NOT support container.requestFullscreen()
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+
+    if (isIOS && v) {
+      // Use iOS native video fullscreen
+      const webkitVideo = v as any
+      if (webkitVideo.webkitEnterFullscreen) {
+        webkitVideo.webkitEnterFullscreen()
+        return
+      }
+    }
+
+    // Standard fullscreen API (desktop, Android)
     if (document.fullscreenElement) {
       document.exitFullscreen()
-    } else {
+    } else if (el?.requestFullscreen) {
       el.requestFullscreen().catch(() => {})
+    } else if ((v as any)?.webkitEnterFullscreen) {
+      // Fallback for older iOS
+      ;(v as any).webkitEnterFullscreen()
     }
   }
 
@@ -357,6 +395,25 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
       // PiP not supported or denied — silently ignore
     }
   }
+
+  // Media Session API — iOS lockscreen / Control Center controls
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !title) return
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title,
+        artist: 'IPTV Player',
+        album: 'Live TV',
+        artwork: poster ? [{ src: poster, sizes: '512x512', type: 'image/jpeg' }] : [],
+      })
+      navigator.mediaSession.setActionHandler('play', () => {
+        videoRef.current?.play().catch(() => {})
+      })
+      navigator.mediaSession.setActionHandler('pause', () => {
+        videoRef.current?.pause()
+      })
+    } catch {}
+  }, [title, poster])
 
   const pipSupported = typeof document !== 'undefined' && document.pictureInPictureEnabled
 
@@ -375,10 +432,29 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
         ref={videoRef}
         poster={poster}
         playsInline
+        webkit-playsinline="true"
         autoPlay
+        muted={muted}
         className="w-full h-full object-contain animate-cinematic-fade"
         onClick={togglePlay}
       />
+
+      {/* Tap to unmute overlay (mobile/iOS) */}
+      {muted && playing && !error && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation()
+            const v = videoRef.current
+            if (!v) return
+            v.muted = false
+            setMuted(false)
+          }}
+          className="absolute top-3 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-2 text-white text-xs animate-slide-up z-10"
+        >
+          <VolumeX className="h-4 w-4" />
+          Tap to unmute
+        </button>
+      )}
 
       {/* Loading / buffering overlay */}
       {(loading || buffering) && !error && (

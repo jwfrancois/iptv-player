@@ -107,21 +107,21 @@ export function ChannelSidebar({
 
       <div className="flex flex-1 min-h-0">
         {/* Category column */}
-        <div className="w-44 shrink-0 border-r overflow-hidden">
+        <div className="w-32 sm:w-44 shrink-0 border-r overflow-hidden">
           <button
-            className="w-full px-3 py-2 text-left text-xs font-semibold uppercase text-muted-foreground hover:bg-accent"
+            className="w-full px-2 sm:px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted-foreground hover:bg-accent min-h-[44px]"
             onClick={() => onSelectCategory(null)}
           >
             All {kind === 'live' ? 'Channels' : kind === 'vod' ? 'Movies' : 'Series'}
           </button>
-          <ScrollArea className="h-[calc(100vh-220px)]">
+          <ScrollArea className="h-[calc(100dvh-280px)] sm:h-[calc(100dvh-220px)]">
             <div className="py-1">
               {categories.map((c) => (
                 <button
                   key={c.category_id}
                   onClick={() => onSelectCategory(c.category_id)}
                   className={cn(
-                    'w-full px-3 py-1.5 text-left text-xs truncate hover:bg-accent transition-colors',
+                    'w-full px-2 sm:px-3 py-2.5 sm:py-1.5 text-left text-xs truncate hover:bg-accent transition-colors min-h-[44px] sm:min-h-0',
                     selectedCategoryId === c.category_id && 'bg-accent font-medium'
                   )}
                   title={c.category_name}
@@ -135,7 +135,7 @@ export function ChannelSidebar({
 
         {/* Items column */}
         <div className="flex-1 min-w-0 overflow-hidden">
-          <div className="h-[calc(100vh-220px)] overflow-y-auto overflow-x-hidden">
+          <div className="h-[calc(100dvh-280px)] sm:h-[calc(100dvh-220px)] overflow-y-auto overflow-x-hidden scrollbar-thin">
             {loadingItems ? (
               <div className="flex items-center justify-center p-8">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -166,7 +166,7 @@ export function ChannelSidebar({
                     <li
                       key={id}
                       className={cn(
-                        'group flex items-center gap-2.5 px-2.5 py-2 cursor-pointer transition-all w-full border-l-2',
+                        'group flex items-center gap-2.5 px-2.5 py-2.5 sm:py-2 cursor-pointer transition-all w-full border-l-2 min-h-[48px] sm:min-h-0',
                         isSel
                           ? 'bg-accent border-primary'
                           : 'border-transparent hover:bg-accent/40 hover:border-muted-foreground/30'
@@ -181,7 +181,7 @@ export function ChannelSidebar({
                         })
                       }
                     >
-                      <div className="h-10 w-10 shrink-0 rounded-md bg-muted overflow-hidden flex items-center justify-center ring-1 ring-black/5 dark:ring-white/5">
+                      <div className="h-11 w-11 sm:h-10 sm:w-10 shrink-0 rounded-md bg-muted overflow-hidden flex items-center justify-center ring-1 ring-black/5 dark:ring-white/5">
                         {poster ? (
                           <img
                             src={poster}
@@ -226,12 +226,12 @@ export function ChannelSidebar({
                           onToggleFavorite(favKey(it))
                         }}
                         className={cn(
-                          'p-1 rounded hover:bg-accent-foreground/10 transition-colors',
+                          'p-2 sm:p-1 rounded hover:bg-accent-foreground/10 transition-colors min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 flex items-center justify-center',
                           isFav ? 'text-yellow-500' : 'text-muted-foreground/50'
                         )}
                         aria-label="Toggle favorite"
                       >
-                        <Star className={cn('h-3.5 w-3.5', isFav && 'fill-current')} />
+                        <Star className={cn('h-4 w-4 sm:h-3.5 sm:w-3.5', isFav && 'fill-current')} />
                       </button>
                       {onAddToMosaic && kind === 'live' && (
                         <button
@@ -246,7 +246,7 @@ export function ChannelSidebar({
                             })
                           }}
                           className={cn(
-                            'p-1 rounded hover:bg-accent-foreground/10 transition-colors',
+                            'p-2 sm:p-1 rounded hover:bg-accent-foreground/10 transition-colors min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 flex items-center justify-center',
                             mosaicIds?.has(String(id))
                               ? 'text-primary'
                               : 'text-muted-foreground/50'
@@ -254,7 +254,7 @@ export function ChannelSidebar({
                           aria-label="Add to Multi-View"
                           title="Add to Multi-View"
                         >
-                          <Grid3x3 className={cn('h-3.5 w-3.5')} />
+                          <Grid3x3 className={cn('h-4 w-4 sm:h-3.5 sm:w-3.5')} />
                         </button>
                       )}
                       <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-foreground" />

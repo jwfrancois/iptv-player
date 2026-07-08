@@ -365,30 +365,29 @@ export default function IPTVPage() {
     : null
 
   return (
-    <div className="h-screen flex flex-col bg-background text-foreground overflow-hidden">
+    <div className="h-[100dvh] flex flex-col bg-background text-foreground overflow-hidden">
       {/* Top bar */}
-      <header className="border-b bg-card/30 backdrop-blur-sm">
-        <div className="flex items-center gap-3 px-4 py-2.5">
-          <div className="flex items-center gap-2">
+      <header className="border-b bg-card/30 backdrop-blur-sm shrink-0">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <div className="flex items-center gap-2 shrink-0">
             <div className="h-7 w-7 rounded-md bg-gradient-to-br from-rose-500 to-orange-500 flex items-center justify-center">
               <Radio className="h-4 w-4 text-white" />
             </div>
-            <span className="font-semibold text-sm">IPTV Player</span>
+            <span className="font-semibold text-sm hidden sm:inline">IPTV Player</span>
           </div>
 
-          <div className="ml-2 flex items-center gap-2 text-xs">
+          <div className="ml-1 flex items-center gap-2 text-xs min-w-0">
             {loading ? (
               <span className="flex items-center gap-1 text-muted-foreground">
-                <Loader2 className="h-3 w-3 animate-spin" /> Connecting…
+                <Loader2 className="h-3 w-3 animate-spin" /> <span className="hidden sm:inline">Connecting…</span>
               </span>
             ) : isAuthed ? (
-              <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400">
-                <Wifi className="h-3.5 w-3.5" />
-                <span className="font-medium">{config.username}</span>
-                {expDate && <span className="text-muted-foreground">· expires {expDate}</span>}
+              <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400 min-w-0">
+                <Wifi className="h-3.5 w-3.5 shrink-0" />
+                <span className="font-medium hidden sm:inline">{config.username}</span>
                 {auth?.user_info?.active_cons && (
-                  <span className="text-muted-foreground">
-                    · {auth.user_info.active_cons}/{auth.user_info.max_connections} connections
+                  <span className="text-muted-foreground text-[10px]">
+                    {auth.user_info.active_cons}/{auth.user_info.max_connections}
                   </span>
                 )}
                 {trial && (
@@ -400,21 +399,22 @@ export default function IPTVPage() {
             ) : (
               <span className="flex items-center gap-1 text-red-500">
                 <WifiOff className="h-3.5 w-3.5" />
-                Not connected
+                <span className="hidden sm:inline">Not connected</span>
               </span>
             )}
           </div>
 
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex items-center gap-1.5 shrink-0">
             {isAuthed && (
               <Button
                 variant={mosaicOpen ? 'default' : 'ghost'}
                 size="sm"
                 onClick={() => setMosaicOpen((v) => !v)}
                 title="Open Multi-View mosaic"
+                className="h-8 px-2"
               >
-                <Grid3x3 className="h-3.5 w-3.5 mr-1" />
-                Multi-View
+                <Grid3x3 className="h-3.5 w-3.5 sm:mr-1" />
+                <span className="hidden sm:inline">Multi-View</span>
                 {mosaicTiles.length > 0 && (
                   <span className="ml-1 px-1 rounded bg-primary-foreground/20 text-[10px]">
                     {mosaicTiles.length}
@@ -432,6 +432,7 @@ export default function IPTVPage() {
                   setSeriesCats([]); setSeriesList([])
                   authenticate()
                 }}
+                className="h-8 px-2"
               >
                 <RefreshCw className="h-3.5 w-3.5 mr-1" />
                 Refresh
@@ -465,35 +466,139 @@ export default function IPTVPage() {
         </div>
       )}
 
-      {/* Main */}
-      <div className="flex-1 flex min-h-0">
-        {/* Sidebar */}
-        <aside className="w-[460px] shrink-0 hidden md:flex flex-col">
+      {/* Main — mobile: player on top, channels below; desktop: sidebar left, player right */}
+      <div className="flex-1 flex flex-col md:flex-row min-h-0">
+        {/* Player area — top on mobile (shrink-0), right on desktop (flex-1) */}
+        <main className="min-w-0 flex flex-col min-h-0 order-1 md:order-2 shrink-0 md:flex-1">
+          <div className="bg-black shrink-0">
+            {playerSrc ? (
+              <VideoPlayer
+                src={playerSrc}
+                title={playerTitle}
+                poster={playerPoster}
+                contentType={playerContentType}
+                showVisualizer={isMusicChannel}
+              />
+            ) : (
+              <div className="aspect-video flex flex-col items-center justify-center text-white/60 gap-3 px-4">
+                <Radio className="h-10 w-10 opacity-40" />
+                <p className="text-sm text-center">
+                  {isAuthed
+                    ? 'Select a channel below to start watching.'
+                    : 'Connect to your IPTV portal to begin.'}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Hero banner + info — hidden on mobile (compact), shown on desktop */}
+          <div className="hidden md:block flex-1 overflow-auto bg-background">
+            {currentSelection && currentSelection.kind === 'live' && (
+              <HeroBanner
+                channelName={currentSelection.name}
+                channelPoster={currentSelection.poster}
+                categoryName="Live TV"
+                streamId={currentSelection.id}
+                fetcher={getShortEpg}
+              />
+            )}
+
+            {currentSelection ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
+                {currentSelection.kind === 'live' ? (
+                  <div className="border-r">
+                    <EpgPanel
+                      streamId={currentSelection.id}
+                      fetcher={getShortEpg}
+                    />
+                  </div>
+                ) : (
+                  <div className="p-4 border-r">
+                    <p className="text-sm font-medium truncate mb-1">{currentSelection.name}</p>
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                      {currentSelection.kind === 'vod' ? 'Movie' : 'Series Episode'}
+                    </p>
+                  </div>
+                )}
+
+                <div className="p-4">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
+                    Account Status
+                  </p>
+                  {auth && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="rounded border p-2.5">
+                        <p className="text-[10px] uppercase text-muted-foreground">Status</p>
+                        <p className="text-sm font-medium">{auth.user_info.status || 'Active'}</p>
+                      </div>
+                      <div className="rounded border p-2.5">
+                        <p className="text-[10px] uppercase text-muted-foreground">Connections</p>
+                        <p className="text-sm font-medium">
+                          {auth.user_info.active_cons} / {auth.user_info.max_connections}
+                        </p>
+                      </div>
+                      <div className="rounded border p-2.5">
+                        <p className="text-[10px] uppercase text-muted-foreground">Expires</p>
+                        <p className="text-sm font-medium">
+                          {auth.user_info.exp_date
+                            ? new Date(Number(auth.user_info.exp_date) * 1000).toLocaleDateString()
+                            : '—'}
+                        </p>
+                      </div>
+                      <div className="rounded border p-2.5">
+                        <p className="text-[10px] uppercase text-muted-foreground">Trial</p>
+                        <p className="text-sm font-medium">
+                          {auth.user_info.is_trial === '1' ? 'Yes' : 'No'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="p-6 text-sm text-muted-foreground">
+                <p className="font-medium text-foreground mb-1">Welcome to your IPTV Player</p>
+                <p className="text-xs leading-relaxed">
+                  Browse Live TV, Movies, and Series from the sidebar. Use the search box to find
+                  channels by name. Click the star icon next to any item to save it to your
+                  favorites for quick access. Recently watched channels appear at the top of the
+                  sidebar — one click to jump back.
+                </p>
+              </div>
+            )}
+          </div>
+        </main>
+
+        {/* Sidebar — bottom on mobile (order-2), left on desktop (order-1) */}
+        <aside className="shrink-0 flex flex-col border-r min-h-0 order-2 md:order-1 w-full md:w-[460px] flex-1 md:flex-none overflow-hidden">
           <Tabs
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as ContentKind)}
-            className="w-full"
+            className="w-full shrink-0"
           >
-            <div className="px-3 pt-3 pb-1">
+            <div className="px-3 pt-2 pb-1">
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="live" className="text-xs">
                   <Tv className="h-3.5 w-3.5 mr-1" />
-                  Live TV
+                  <span className="hidden sm:inline">Live TV</span>
+                  <span className="sm:hidden">Live</span>
                 </TabsTrigger>
                 <TabsTrigger value="vod" className="text-xs">
                   <Film className="h-3.5 w-3.5 mr-1" />
-                  Movies
+                  <span className="hidden sm:inline">Movies</span>
+                  <span className="sm:hidden">Movies</span>
                 </TabsTrigger>
                 <TabsTrigger value="series" className="text-xs">
                   <MonitorPlay className="h-3.5 w-3.5 mr-1" />
-                  Series
+                  <span className="hidden sm:inline">Series</span>
+                  <span className="sm:hidden">Series</span>
                 </TabsTrigger>
               </TabsList>
             </div>
           </Tabs>
 
           {itemsError && (
-            <div className="mx-3 my-2 text-xs text-red-500 px-2 py-1.5 bg-red-500/10 rounded">
+            <div className="mx-3 my-2 text-xs text-red-500 px-2 py-1.5 bg-red-500/10 rounded shrink-0">
               {itemsError}
             </div>
           )}
@@ -546,127 +651,6 @@ export default function IPTVPage() {
             )}
           </div>
         </aside>
-
-        {/* Player area */}
-        <main className="flex-1 min-w-0 flex flex-col">
-          <div className="bg-black">
-            {playerSrc ? (
-              <VideoPlayer
-                src={playerSrc}
-                title={playerTitle}
-                poster={playerPoster}
-                contentType={playerContentType}
-                showVisualizer={isMusicChannel}
-              />
-            ) : (
-              <div className="aspect-video flex flex-col items-center justify-center text-white/60 gap-3">
-                <Radio className="h-12 w-12 opacity-40" />
-                <p className="text-sm">
-                  {isAuthed
-                    ? 'Select a channel, movie, or series to start watching.'
-                    : 'Connect to your IPTV portal to begin.'}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Hero banner with current channel + EPG (Netflix style) */}
-          {currentSelection && currentSelection.kind === 'live' && (
-            <HeroBanner
-              channelName={currentSelection.name}
-              channelPoster={currentSelection.poster}
-              categoryName="Live TV"
-              streamId={currentSelection.id}
-              fetcher={getShortEpg}
-            />
-          )}
-
-          {/* Below player: EPG panel + account info */}
-          <div className="flex-1 overflow-auto bg-background">
-            {currentSelection ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-0">
-                {/* EPG Panel (live channels only) */}
-                {currentSelection.kind === 'live' ? (
-                  <div className="border-r">
-                    <EpgPanel
-                      streamId={currentSelection.id}
-                      fetcher={getShortEpg}
-                    />
-                  </div>
-                ) : (
-                  <div className="p-4 border-r">
-                    <p className="text-sm font-medium truncate mb-1">{currentSelection.name}</p>
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      {currentSelection.kind === 'vod' ? 'Movie' : 'Series Episode'}
-                    </p>
-                  </div>
-                )}
-
-                {/* Account status */}
-                <div className="p-4">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-2">
-                    Account Status
-                  </p>
-                  {auth && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded border p-2.5">
-                        <p className="text-[10px] uppercase text-muted-foreground">Status</p>
-                        <p className="text-sm font-medium">{auth.user_info.status || 'Active'}</p>
-                      </div>
-                      <div className="rounded border p-2.5">
-                        <p className="text-[10px] uppercase text-muted-foreground">Connections</p>
-                        <p className="text-sm font-medium">
-                          {auth.user_info.active_cons} / {auth.user_info.max_connections}
-                        </p>
-                      </div>
-                      <div className="rounded border p-2.5">
-                        <p className="text-[10px] uppercase text-muted-foreground">Expires</p>
-                        <p className="text-sm font-medium">
-                          {auth.user_info.exp_date
-                            ? new Date(Number(auth.user_info.exp_date) * 1000).toLocaleDateString()
-                            : '—'}
-                        </p>
-                      </div>
-                      <div className="rounded border p-2.5">
-                        <p className="text-[10px] uppercase text-muted-foreground">Trial</p>
-                        <p className="text-sm font-medium">
-                          {auth.user_info.is_trial === '1' ? 'Yes' : 'No'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="p-6 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground mb-1">Welcome to your IPTV Player</p>
-                <p className="text-xs leading-relaxed">
-                  Browse Live TV, Movies, and Series from the sidebar. Use the search box to find
-                  channels by name. Click the star icon next to any item to save it to your
-                  favorites for quick access. Recently watched channels appear at the top of the
-                  sidebar — one click to jump back.
-                </p>
-              </div>
-            )}
-          </div>
-        </main>
-      </div>
-
-      {/* Mobile sidebar switcher (above player on small screens) */}
-      <div className="md:hidden border-t bg-card/30 p-2">
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ContentKind)}>
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="live" className="text-xs">
-              <Tv className="h-3.5 w-3.5 mr-1" /> Live
-            </TabsTrigger>
-            <TabsTrigger value="vod" className="text-xs">
-              <Film className="h-3.5 w-3.5 mr-1" /> Movies
-            </TabsTrigger>
-            <TabsTrigger value="series" className="text-xs">
-              <MonitorPlay className="h-3.5 w-3.5 mr-1" /> Series
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
 
       <SettingsDialog

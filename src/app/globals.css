@@ -116,9 +116,35 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    /* Use dynamic viewport height so iOS Safari URL bar doesn't cause layout jumps */
+    height: 100dvh;
+  }
   body {
     @apply bg-background text-foreground;
+    /* Prevent iOS rubber-band overscroll */
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+    /* Remove 300ms tap delay on iOS */
+    touch-action: manipulation;
+    /* Remove tap highlight */
+    -webkit-tap-highlight-color: transparent;
+    /* Prevent text selection on UI elements (allow on descriptions) */
+    -webkit-user-select: none;
+    user-select: none;
+    /* Safe area insets for notch/Dynamic Island */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
+  /* Allow text selection in descriptions/program info */
+  p, span, div {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  /* Prevent pull-to-refresh on iOS */
+  body { overscroll-behavior-y: contain; }
 }
 
 /* ============================================================
