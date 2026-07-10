@@ -30,6 +30,9 @@ import { EpgPanel } from '@/components/iptv/epg-panel'
 import { RecentStrip } from '@/components/iptv/recent-strip'
 import { HeroBanner } from '@/components/iptv/hero-banner'
 import { MosaicView, type MosaicTile } from '@/components/iptv/mosaic-view'
+import { PortalSwitcher } from '@/components/iptv/portal-switcher'
+import { PortalManagerDialog } from '@/components/iptv/portal-manager-dialog'
+import { usePortals } from '@/lib/iptv/usePortals'
 import {
   DEFAULT_CONFIG,
   useIptvApi,
@@ -49,12 +52,16 @@ import {
   type VodStream,
 } from '@/lib/iptv/types'
 
-const FAV_STORAGE_KEY = 'iptv-favorites'
+const FAV_STORAGE_PREFIX = 'iptv-favorites-'
 
-function loadFavorites(): Set<string> {
+function favKey(portalId: string) {
+  return `${FAV_STORAGE_PREFIX}${portalId}`
+}
+
+function loadFavorites(portalId: string): Set<string> {
   if (typeof window === 'undefined') return new Set()
   try {
-    const raw = localStorage.getItem(FAV_STORAGE_KEY)
+    const raw = localStorage.getItem(favKey(portalId))
     if (!raw) return new Set()
     return new Set(JSON.parse(raw))
   } catch {
@@ -62,13 +69,40 @@ function loadFavorites(): Set<string> {
   }
 }
 
-function saveFavorites(set: Set<string>) {
+function saveFavorites(portalId: string, set: Set<string>) {
   if (typeof window === 'undefined') return
-  localStorage.setItem(FAV_STORAGE_KEY, JSON.stringify(Array.from(set)))
+  localStorage.setItem(favKey(portalId), JSON.stringify(Array.from(set)))
 }
 
 export default function IPTVPage() {
+  // Multi-portal store — manages list of portals + active selection
+  const {
+    portals,
+    activePortal,
+    activeId,
+    addPortal,
+    updatePortal,
+    removePortal,
+    switchPortal,
+    testPortal,
+  } = usePortals()
+
+  // Build the PortalConfig that useIptvApi expects, from the active portal
+  const activeConfig: PortalConfig = activePortal
+    ? {
+        portal: activePortal.portal,
+        username: activePortal.username,
+        password: activePortal.password,
+      }
+    : DEFAULT_CONFIG
+
   const iptv = useIptvApi()
+  // When the active portal changes, update the iptv config + re-authenticate
+  useEffect(() => {
+    if (!activePortal) return
+    setConfig(activeConfig)
+  }, [activeId])  
+
   const {
     config,
     setConfig,
@@ -86,6 +120,7 @@ export default function IPTVPage() {
 
   const [activeTab, setActiveTab] = useState<ContentKind>('live')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [portalManagerOpen, setPortalManagerOpen] = useState(false)
 
   // Sidebar state per kind
   const [liveCats, setLiveCats] = useState<Category[]>([])
@@ -110,8 +145,8 @@ export default function IPTVPage() {
   const [playerPoster, setPlayerPoster] = useState<string | undefined>(undefined)
   const [playerContentType, setPlayerContentType] = useState<'hls' | 'mp4' | 'ts' | 'auto'>('auto')
 
-  // Recently watched channels
-  const { recent, addRecent, clearRecent } = useRecentChannels()
+  // Recently watched channels — per-portal
+  const { recent, addRecent, clearRecent } = useRecentChannels(activeId)
 
   // EPG fetcher bound to current config
   const getShortEpg = iptv.getShortEpg
@@ -133,7 +168,7 @@ export default function IPTVPage() {
     name: '',
   })
 
-  // Favorites
+  // Favorites — per-portal (namespaced by portal ID)
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
   const [showFavOnly, setShowFavOnly] = useState<Record<ContentKind, boolean>>({
     live: false,
@@ -141,12 +176,23 @@ export default function IPTVPage() {
     series: false,
   })
 
-  // Initial load: favorites + authenticate
+  // Load favorites when portal changes + authenticate on portal switch
   useEffect(() => {
-    setFavorites(loadFavorites())
-    // Auto-authenticate on first load
-    authenticate().catch(() => {})
-  }, [authenticate])
+    if (!activePortal) return
+    // Reset all state for the new portal
+    setFavorites(loadFavorites(activePortal.id))
+    setLiveCats([]); setLiveStreams([])
+    setVodCats([]); setVodStreams([])
+    setSeriesCats([]); setSeriesList([])
+    setSelectedCat({ live: null, vod: null, series: null })
+    setCurrentSelection(null)
+    setPlayerSrc('')
+    setPlayerTitle('')
+    setPlayerPoster(undefined)
+    setMosaicTiles([])
+    // Authenticate with the new portal
+    authenticate(activeConfig).catch(() => {})
+  }, [activeId])  
 
   // When auth completes successfully, load categories for current tab
   useEffect(() => {
@@ -293,10 +339,10 @@ export default function IPTVPage() {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
-      saveFavorites(next)
+      if (activePortal) saveFavorites(activePortal.id, next)
       return next
     })
-  }, [])
+  }, [activePortal])
 
   const handleTestConnection = useCallback(
     async (cfg: PortalConfig): Promise<boolean> => {
@@ -376,6 +422,14 @@ export default function IPTVPage() {
             <span className="font-semibold text-sm hidden sm:inline">IPTV Player</span>
           </div>
 
+          {/* Portal switcher */}
+          <PortalSwitcher
+            portals={portals}
+            activePortal={activePortal}
+            onSwitch={switchPortal}
+            onManage={() => setPortalManagerOpen(true)}
+          />
+
           <div className="ml-1 flex items-center gap-2 text-xs min-w-0">
             {loading ? (
               <span className="flex items-center gap-1 text-muted-foreground">
@@ -438,9 +492,9 @@ export default function IPTVPage() {
                 Refresh
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(true)}>
-              <Settings2 className="h-3.5 w-3.5 mr-1" />
-              Settings
+            <Button variant="ghost" size="sm" onClick={() => setPortalManagerOpen(true)} className="h-8 px-2">
+              <Settings2 className="h-3.5 w-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">Portals</span>
             </Button>
           </div>
         </div>
@@ -686,6 +740,18 @@ export default function IPTVPage() {
         onRemoveTile={removeFromMosaic}
         onPromoteTile={promoteFromMosaic}
         onClearAll={() => setMosaicTiles([])}
+      />
+
+      <PortalManagerDialog
+        open={portalManagerOpen}
+        onOpenChange={setPortalManagerOpen}
+        portals={portals}
+        activeId={activeId}
+        onSwitch={switchPortal}
+        onAdd={addPortal}
+        onUpdate={updatePortal}
+        onRemove={removePortal}
+        onTest={testPortal}
       />
     </div>
   )
