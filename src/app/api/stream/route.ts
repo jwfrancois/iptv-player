@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCachedSegment, setCachedSegment, startPrefetch, touchStream } from '@/lib/iptv/segment-cache'
+import { getCachedSegment, setCachedSegment, startPrefetch, touchStream, acquireConnection, releaseConnection } from '@/lib/iptv/segment-cache'
 
 /**
  * Stream proxy with in-memory segment caching.
@@ -54,6 +54,9 @@ export async function GET(req: NextRequest) {
   const range = req.headers.get('range')
   if (range) headers['Range'] = range
 
+  // Acquire a connection slot — prevents exceeding the portal's concurrent
+  // connection limit (which would cause 403 errors).
+  await acquireConnection()
   try {
     const upstream = await fetch(target, {
       headers,
@@ -103,5 +106,7 @@ export async function GET(req: NextRequest) {
       { error: err?.message || 'Failed to fetch stream' },
       { status: 502 }
     )
+  } finally {
+    releaseConnection()
   }
 }

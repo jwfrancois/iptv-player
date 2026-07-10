@@ -177,20 +177,19 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
           // constant rebuffering on IPTV streams. We want a big stable buffer.
           lowLatencyMode: false,
 
-          // Buffer sizing — MASSIVE buffer because we have a server-side
-          // segment cache + parallel prefetch. We can fill 60s of buffer
-          // in ~6s thanks to parallel downloads.
-          backBufferLength: 120,        // keep 120s of played video (seek-back)
-          maxBufferLength: 60,          // target forward buffer (60s)
-          maxMaxBufferLength: 300,      // hard cap on forward buffer (5 min)
-          maxBufferSize: 200 * 1000 * 1000, // 200MB cap
+          // Buffer sizing — tuned for connection-limited prefetch (2 parallel).
+          // We can download ~2 segments per 3s cycle = ~20s of video per 3s.
+          // Target 30s buffer (3 segments ahead) — achievable with our limit.
+          backBufferLength: 60,         // keep 60s of played video (seek-back)
+          maxBufferLength: 30,          // target forward buffer (30s)
+          maxMaxBufferLength: 120,      // hard cap on forward buffer (2 min)
+          maxBufferSize: 100 * 1000 * 1000, // 100MB cap (FHD segments are ~8MB each)
           maxBufferHole: 0.5,           // tolerate small gaps
 
-          // Live sync — stay further from the edge for stability.
-          // Default is 3 segments (~30s). We use 4 (~40s) — close enough to
-          // be "live" but with enough buffer to absorb jitter.
-          liveSyncDurationCount: 4,
-          liveMaxLatencyDurationCount: 18,  // if we fall too far behind, catch up
+          // Live sync — stay closer to the edge since we have less prefetch.
+          // 3 segments (~30s) — standard for live TV.
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 12,  // if we fall too far behind, catch up
 
           // Retry logic for flaky portal servers
           fragLoadingTimeOut: 20000,        // 20s before timeout

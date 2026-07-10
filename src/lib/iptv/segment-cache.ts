@@ -31,14 +31,46 @@ interface ActiveStream {
 }
 
 const SEGMENT_TTL_MS = 90 * 1000 // 90 seconds — live segments expire fast
-const PREFETCH_INTERVAL_MS = 2 * 1000 // check for new segments every 2s (aggressive)
-const MAX_PARALLEL_PREFETCH = 6 // download up to 6 segments at once
-const MAX_CACHED_SEGMENTS = 60 // evict oldest beyond this
-const MAX_ACTIVE_STREAMS = 4 // limit active prefetch streams (connection limit)
+const PREFETCH_INTERVAL_MS = 3 * 1000 // check for new segments every 3s
+const MAX_PARALLEL_PREFETCH = 2 // only 2 parallel prefetch (portal allows 3 total connections — leave 1 for hls.js)
+const MAX_CACHED_SEGMENTS = 40 // evict oldest beyond this
+const MAX_ACTIVE_STREAMS = 2 // limit active prefetch streams (connection limit)
+const PORTAL_CONNECTION_LIMIT = 3 // most portals allow 3 concurrent connections
 
 // Shared singletons — persist across requests in the Node.js runtime
 const segmentCache = new Map<string, CachedSegment>()
 const activeStreams = new Map<string, ActiveStream>()
+
+// Global in-flight tracker (avoids duplicate parallel fetches of same URL)
+const globalInFlight = new Set<string>()
+
+// Global connection semaphore — tracks ALL active connections to the portal
+// (both prefetch AND hls.js segment requests). We must stay under the portal's
+// concurrent connection limit or it returns 403.
+let activeConnectionCount = 0
+const connectionQueue: Array<() => void> = []
+
+/** Acquire a connection slot. Waits if at the limit. */
+async function acquireConnection(): Promise<void> {
+  if (activeConnectionCount < PORTAL_CONNECTION_LIMIT) {
+    activeConnectionCount++
+    return
+  }
+  // Wait for a slot
+  await new Promise<void>((resolve) => {
+    connectionQueue.push(() => {
+      activeConnectionCount++
+      resolve()
+    })
+  })
+}
+
+/** Release a connection slot. */
+function releaseConnection(): void {
+  activeConnectionCount--
+  const next = connectionQueue.shift()
+  if (next) next()
+}
 
 function absoluteUrl(relative: string, base: string): string {
   try {
@@ -64,14 +96,9 @@ function parseManifestSegments(content: string, baseUrl: string): string[] {
 /** Fetch a segment and cache it. Returns void (fire-and-forget for prefetch). */
 async function fetchAndCacheSegment(url: string): Promise<void> {
   if (segmentCache.has(url)) return
-  // Find the active stream this URL belongs to (to check inFlight)
-  for (const stream of activeStreams.values()) {
-    if (stream.inFlight.has(url)) return
-  }
-  // Mark as in-flight on all active streams (simplest: find by URL match)
-  // Actually, just use a global inFlight set to avoid complex tracking
   if (globalInFlight.has(url)) return
   globalInFlight.add(url)
+  await acquireConnection()
   try {
     const res = await fetch(url, {
       headers: {
@@ -97,12 +124,10 @@ async function fetchAndCacheSegment(url: string): Promise<void> {
   } catch {
     // Network error — just skip, will retry next cycle
   } finally {
+    releaseConnection()
     globalInFlight.delete(url)
   }
 }
-
-// Global in-flight tracker (avoids duplicate parallel fetches of same URL)
-const globalInFlight = new Set<string>()
 
 /** Evict expired segments and enforce max cache size. */
 function evictOldSegments() {
@@ -243,3 +268,4 @@ export function getCacheStats() {
     inFlight: globalInFlight.size,
   }
 }
+
