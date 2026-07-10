@@ -51,6 +51,7 @@ export function RecentStrip({ recent, currentId, onSelect, onClear }: RecentStri
                 <img
                   src={poster}
                   alt={ch.name}
+                  loading="lazy"
                   className="h-full w-full object-cover"
                   onError={(e) => {
                     const t = e.target as HTMLImageElement

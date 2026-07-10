@@ -30,10 +30,10 @@ interface ActiveStream {
   inFlight: Set<string>
 }
 
-const SEGMENT_TTL_MS = 90 * 1000 // 90 seconds — live segments expire fast
+const SEGMENT_TTL_MS = 60 * 1000 // 60 seconds — live segments expire fast
 const PREFETCH_INTERVAL_MS = 3 * 1000 // check for new segments every 3s
 const MAX_PARALLEL_PREFETCH = 2 // only 2 parallel prefetch (portal allows 3 total connections — leave 1 for hls.js)
-const MAX_CACHED_SEGMENTS = 40 // evict oldest beyond this
+const MAX_CACHED_SEGMENTS = 15 // evict oldest beyond this (15 × 8MB FHD = 120MB max)
 const MAX_ACTIVE_STREAMS = 2 // limit active prefetch streams (connection limit)
 const PORTAL_CONNECTION_LIMIT = 3 // most portals allow 3 concurrent connections
 

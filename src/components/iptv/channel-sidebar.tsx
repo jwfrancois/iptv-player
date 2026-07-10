@@ -63,6 +63,7 @@ export function ChannelSidebar({
 }: SidebarProps) {
   const [search, setSearch] = useState('')
   const [openCats, setOpenCats] = useState(true)
+  const [renderLimit, setRenderLimit] = useState(200)
 
   // Filtered items based on search
   const filtered = useMemo(() => {
@@ -71,12 +72,21 @@ export function ChannelSidebar({
     return items.filter((it: any) => (it.name || '').toLowerCase().includes(q))
   }, [items, search])
 
+  // Reset render limit when search or category changes
+  useEffect(() => {
+    setRenderLimit(200)
+  }, [search, selectedCategoryId])
+
   const favKey = (it: any) => `${FAV_KEY_PREFIX[kind]}:${it.stream_id ?? it.series_id}`
 
   const visibleItems = useMemo(() => {
     if (!showFavoritesOnly) return filtered
     return filtered.filter((it: any) => favorites.has(favKey(it)))
   }, [filtered, showFavoritesOnly, favorites])
+
+  // Apply render limit to avoid rendering 5000+ DOM elements at once
+  const renderedItems = visibleItems.slice(0, renderLimit)
+  const hasMore = visibleItems.length > renderLimit
 
   const kindIcon = kind === 'live' ? Tv : kind === 'vod' ? Film : MonitorPlay
   const KindIcon = kindIcon
@@ -150,7 +160,7 @@ export function ChannelSidebar({
               </div>
             ) : (
               <ul className="divide-y">
-                {visibleItems.map((it: any) => {
+                {renderedItems.map((it: any) => {
                   const id = it.stream_id ?? it.series_id
                   const rawPoster =
                     kind === 'live'
@@ -186,6 +196,7 @@ export function ChannelSidebar({
                           <img
                             src={poster}
                             alt=""
+                            loading="lazy"
                             className="h-full w-full object-cover"
                             onError={(e) => {
                               ;(e.target as HTMLImageElement).style.display = 'none'
@@ -262,6 +273,15 @@ export function ChannelSidebar({
                   )
                 })}
               </ul>
+            )}
+            {/* Load more button */}
+            {hasMore && (
+              <button
+                onClick={() => setRenderLimit((n) => n + 200)}
+                className="w-full py-3 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+              >
+                Load more ({visibleItems.length - renderLimit} remaining)
+              </button>
             )}
           </div>
         </div>
