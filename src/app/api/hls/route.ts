@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { startPrefetch } from '@/lib/iptv/segment-cache'
 
 /**
  * HLS proxy that fetches an m3u8 playlist, rewrites all segment and sub-playlist
  * URLs to absolute (based on the m3u8 URL), then rewrites them again to go
  * through /api/hls (for .m3u8) or /api/stream (for .ts/.mp4/.key).
  *
- * This is necessary because hls.js, when loading a manifest from /api/stream,
- * resolves relative segment URLs against /api/stream's URL (localhost), not the
- * upstream portal URL.
+ * Segment URLs include the manifest URL as a `manifest` param so the stream
+ * proxy can trigger parallel prefetch of upcoming segments.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -20,33 +20,34 @@ function absoluteUrl(relative: string, base: string): string {
   }
 }
 
-function rewriteManifest(content: string, baseUrl: string): string {
+function rewriteManifest(content: string, baseUrl: string, manifestUrl: string): string {
   const lines = content.split(/\r?\n/)
   return lines
     .map((line) => {
       const trimmed = line.trim()
       if (!trimmed || trimmed.startsWith('#')) {
-        return rewriteAttributes(line, baseUrl)
+        return rewriteAttributes(line, baseUrl, manifestUrl)
       }
       const abs = absoluteUrl(trimmed, baseUrl)
-      return routeUrl(abs)
+      return routeUrl(abs, manifestUrl)
     })
     .join('\n')
 }
 
-function rewriteAttributes(line: string, baseUrl: string): string {
+function rewriteAttributes(line: string, baseUrl: string, manifestUrl: string): string {
   return line.replace(/URI="([^"]+)"/g, (_match, uri) => {
     const abs = absoluteUrl(uri, baseUrl)
-    return `URI="${routeUrl(abs)}"`
+    return `URI="${routeUrl(abs, manifestUrl)}"`
   })
 }
 
-function routeUrl(absUrl: string): string {
+function routeUrl(absUrl: string, manifestUrl?: string): string {
   const lower = absUrl.toLowerCase().split('?')[0]
+  const manifestParam = manifestUrl ? `&manifest=${encodeURIComponent(manifestUrl)}` : ''
   if (lower.endsWith('.m3u8') || lower.endsWith('.m3u')) {
     return `/api/hls?url=${encodeURIComponent(absUrl)}`
   }
-  return `/api/stream?url=${encodeURIComponent(absUrl)}`
+  return `/api/stream?url=${encodeURIComponent(absUrl)}${manifestParam}`
 }
 
 export async function GET(req: NextRequest) {
@@ -67,10 +68,6 @@ export async function GET(req: NextRequest) {
     })
 
     if (!upstream.ok) {
-      // Return a tiny but valid m3u8 that signals the error to hls.js via
-      // an HTTP error response. We pass through the upstream status so the
-      // player can show a meaningful message (403 = forbidden/geo-restricted,
-      // 404 = channel offline, etc.).
       let reason = 'Stream unavailable'
       if (upstream.status === 403) reason = 'Channel forbidden (subscription tier, geo-restriction, or concurrent connection limit)'
       else if (upstream.status === 404) reason = 'Channel not found or offline'
@@ -92,10 +89,13 @@ export async function GET(req: NextRequest) {
     }
 
     // upstream.url is the FINAL url after all redirects — use it as the base
-    // for resolving relative segment URLs in the manifest.
     const finalUrl = upstream.url || target
     const text = await upstream.text()
-    const rewritten = rewriteManifest(text, finalUrl)
+    // Pass the original target URL as the manifest identifier for prefetching
+    const rewritten = rewriteManifest(text, finalUrl, target)
+
+    // Start prefetching segments for this stream immediately (parallel download)
+    startPrefetch(target)
 
     return new NextResponse(rewritten, {
       status: 200,

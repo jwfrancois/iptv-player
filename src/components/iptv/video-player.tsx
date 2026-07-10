@@ -177,16 +177,19 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
           // constant rebuffering on IPTV streams. We want a big stable buffer.
           lowLatencyMode: false,
 
-          // Buffer sizing — bigger = more resilient to network jitter
-          backBufferLength: 90,        // keep 90s of played video (seek-back)
-          maxBufferLength: 30,         // target forward buffer (seconds)
-          maxMaxBufferLength: 120,     // hard cap on forward buffer
-          maxBufferSize: 60 * 1000 * 1000, // 60MB cap
-          maxBufferHole: 0.5,          // tolerate small gaps
+          // Buffer sizing — MASSIVE buffer because we have a server-side
+          // segment cache + parallel prefetch. We can fill 60s of buffer
+          // in ~6s thanks to parallel downloads.
+          backBufferLength: 120,        // keep 120s of played video (seek-back)
+          maxBufferLength: 60,          // target forward buffer (60s)
+          maxMaxBufferLength: 300,      // hard cap on forward buffer (5 min)
+          maxBufferSize: 200 * 1000 * 1000, // 200MB cap
+          maxBufferHole: 0.5,           // tolerate small gaps
 
           // Live sync — stay further from the edge for stability.
-          // Default is 3 segments (~30s). We use 6 (~60s) for more buffer.
-          liveSyncDurationCount: 6,
+          // Default is 3 segments (~30s). We use 4 (~40s) — close enough to
+          // be "live" but with enough buffer to absorb jitter.
+          liveSyncDurationCount: 4,
           liveMaxLatencyDurationCount: 18,  // if we fall too far behind, catch up
 
           // Retry logic for flaky portal servers
