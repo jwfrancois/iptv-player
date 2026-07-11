@@ -31,7 +31,9 @@ async function fetchErrorReason(src: string): Promise<string | null> {
       if (reason) return reason
       if (res.status === 403) return 'Channel forbidden. Your subscription may not include this channel tier, or it is geo-restricted.'
       if (res.status === 404) return 'Channel not found or currently offline.'
+      if (res.status === 456) return 'Stream blocked by portal. Datacenter IP detected, concurrent connection limit, or geo-restriction. Try a residential network or VPN.'
       if (res.status >= 500) return 'Portal server error. Please try another channel.'
+      return `Stream error (HTTP ${res.status}). The channel may be unavailable.`
     }
     return null
   } catch {
@@ -261,11 +263,12 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
           // For network errors, try to fetch a meaningful reason from our proxy
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response) {
             const statusCode = data.response.code
-            // 403/401/451 = forbidden/auth/geo — do NOT retry, show error immediately
-            // This prevents the infinite retry loop on connection-limit-exceeded channels
-            if (statusCode === 403 || statusCode === 401 || statusCode === 451 || statusCode === 452) {
+            // These status codes are permanent blocks — do NOT retry, show error immediately.
+            // 403 = forbidden, 451/452 = geo-blocked, 456 = datacenter IP blocked,
+            // 404 = not found
+            if (statusCode === 403 || statusCode === 401 || statusCode === 451 || statusCode === 452 || statusCode === 456 || statusCode === 404) {
               const customReason = await fetchErrorReason(src)
-              setError(customReason || 'Channel forbidden. Try another channel or reduce active streams.')
+              setError(customReason || 'Channel unavailable. Try another channel.')
               hls.destroy()
               return
             }

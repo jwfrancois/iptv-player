@@ -35,6 +35,14 @@ export const DEFAULT_PORTALS: Portal[] = [
     password: 'vn5Ww68zA',
     createdAt: Date.now(),
   },
+  {
+    id: 'world-8k',
+    name: 'World 8K',
+    portal: 'http://wd.business-cdn-8k.com',
+    username: '2d2163da67',
+    password: '08470ccf48',
+    createdAt: Date.now(),
+  },
 ]
 
 function loadPortals(): Portal[] {
@@ -44,6 +52,14 @@ function loadPortals(): Portal[] {
     if (!raw) return DEFAULT_PORTALS
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_PORTALS
+    // Merge: keep user's saved portals, but add any new default portals they don't have
+    const savedIds = new Set(parsed.map((p: Portal) => p.id))
+    const newDefaults = DEFAULT_PORTALS.filter((p) => !savedIds.has(p.id))
+    if (newDefaults.length > 0) {
+      const merged = [...parsed, ...newDefaults]
+      savePortals(merged)
+      return merged
+    }
     return parsed
   } catch {
     return DEFAULT_PORTALS

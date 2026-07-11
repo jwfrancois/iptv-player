@@ -72,7 +72,9 @@ export async function GET(req: NextRequest) {
       if (upstream.status === 403) reason = 'Channel forbidden (subscription tier, geo-restriction, or concurrent connection limit)'
       else if (upstream.status === 404) reason = 'Channel not found or offline'
       else if (upstream.status === 451 || upstream.status === 452) reason = 'Channel unavailable in your region'
-      else if (upstream.status >= 500) reason = 'Portal server error — try again'
+      else if (upstream.status === 456) reason = 'Stream blocked by portal. This may be due to datacenter IP detection, concurrent connection limit, or geo-restriction. Try connecting from a residential network or VPN.'
+      else if (upstream.status === 580) reason = 'Portal is overloaded. Try again in a moment'
+      else if (upstream.status >= 500) reason = 'Portal server error. Try again'
 
       return NextResponse.json(
         { error: reason, upstreamStatus: upstream.status },
