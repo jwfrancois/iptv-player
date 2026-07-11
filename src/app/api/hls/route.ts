@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { startPrefetch } from '@/lib/iptv/segment-cache'
 
 /**
- * HLS proxy that fetches an m3u8 playlist, rewrites all segment and sub-playlist
- * URLs to absolute (based on the m3u8 URL), then rewrites them again to go
- * through /api/hls (for .m3u8) or /api/stream (for .ts/.mp4/.key).
+ * HLS proxy that fetches an m3u8 playlist, rewrites all segment URLs to
+ * go through /api/stream (which pipes data through without buffering).
  *
- * Segment URLs include the manifest URL as a `manifest` param so the stream
- * proxy can trigger parallel prefetch of upcoming segments.
+ * No prefetch — hls.js handles segment loading sequentially, and our
+ * stream proxy pipes data directly from portal to player.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -20,34 +18,33 @@ function absoluteUrl(relative: string, base: string): string {
   }
 }
 
-function rewriteManifest(content: string, baseUrl: string, manifestUrl: string): string {
+function rewriteManifest(content: string, baseUrl: string): string {
   const lines = content.split(/\r?\n/)
   return lines
     .map((line) => {
       const trimmed = line.trim()
       if (!trimmed || trimmed.startsWith('#')) {
-        return rewriteAttributes(line, baseUrl, manifestUrl)
+        return rewriteAttributes(line, baseUrl)
       }
       const abs = absoluteUrl(trimmed, baseUrl)
-      return routeUrl(abs, manifestUrl)
+      return routeUrl(abs)
     })
     .join('\n')
 }
 
-function rewriteAttributes(line: string, baseUrl: string, manifestUrl: string): string {
+function rewriteAttributes(line: string, baseUrl: string): string {
   return line.replace(/URI="([^"]+)"/g, (_match, uri) => {
     const abs = absoluteUrl(uri, baseUrl)
-    return `URI="${routeUrl(abs, manifestUrl)}"`
+    return `URI="${routeUrl(abs)}"`
   })
 }
 
-function routeUrl(absUrl: string, manifestUrl?: string): string {
+function routeUrl(absUrl: string): string {
   const lower = absUrl.toLowerCase().split('?')[0]
-  const manifestParam = manifestUrl ? `&manifest=${encodeURIComponent(manifestUrl)}` : ''
   if (lower.endsWith('.m3u8') || lower.endsWith('.m3u')) {
     return `/api/hls?url=${encodeURIComponent(absUrl)}`
   }
-  return `/api/stream?url=${encodeURIComponent(absUrl)}${manifestParam}`
+  return `/api/stream?url=${encodeURIComponent(absUrl)}`
 }
 
 export async function GET(req: NextRequest) {
@@ -93,11 +90,7 @@ export async function GET(req: NextRequest) {
     // upstream.url is the FINAL url after all redirects — use it as the base
     const finalUrl = upstream.url || target
     const text = await upstream.text()
-    // Pass the original target URL as the manifest identifier for prefetching
-    const rewritten = rewriteManifest(text, finalUrl, target)
-
-    // Start prefetching segments for this stream immediately (parallel download)
-    startPrefetch(target)
+    const rewritten = rewriteManifest(text, finalUrl)
 
     return new NextResponse(rewritten, {
       status: 200,

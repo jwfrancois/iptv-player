@@ -51,7 +51,7 @@ let activeConnectionCount = 0
 const connectionQueue: Array<() => void> = []
 
 /** Acquire a connection slot. Waits if at the limit. */
-async function acquireConnection(): Promise<void> {
+export async function acquireConnection(): Promise<void> {
   if (activeConnectionCount < PORTAL_CONNECTION_LIMIT) {
     activeConnectionCount++
     return
@@ -66,7 +66,7 @@ async function acquireConnection(): Promise<void> {
 }
 
 /** Release a connection slot. */
-function releaseConnection(): void {
+export function releaseConnection(): void {
   activeConnectionCount--
   const next = connectionQueue.shift()
   if (next) next()
