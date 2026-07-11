@@ -260,15 +260,41 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
 
           setLoading(false)
 
-          // For network errors, try to fetch a meaningful reason from our proxy
+          // For network errors, check the HTTP status code and retry if transient
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response) {
             const statusCode = data.response.code
-            // These status codes are permanent blocks — do NOT retry, show error immediately.
-            // 403 = forbidden, 451/452 = geo-blocked, 456 = datacenter IP blocked,
-            // 404 = not found
-            if (statusCode === 403 || statusCode === 401 || statusCode === 451 || statusCode === 452 || statusCode === 456 || statusCode === 404) {
-              const customReason = await fetchErrorReason(src)
-              setError(customReason || 'Channel unavailable. Try another channel.')
+            // 403 = connection limit — retry up to 5 times (transient)
+            if (statusCode === 403) {
+              retryCountRef.current += 1
+              if (retryCountRef.current > 5) {
+                setError('Channel forbidden after 5 retries. Connection limit may be reached. Try another channel.')
+                hls.destroy()
+              } else {
+                // Retry after 2s
+                setTimeout(() => {
+                  if (!destroyed) hls.startLoad()
+                }, 2000)
+              }
+              return
+            }
+            // Permanent errors — show immediately, no retry
+            if (statusCode === 401) {
+              setError('Authentication failed. Check your portal credentials.')
+              hls.destroy()
+              return
+            }
+            if (statusCode === 404) {
+              setError('Channel not found or currently offline.')
+              hls.destroy()
+              return
+            }
+            if (statusCode === 451 || statusCode === 452) {
+              setError('Channel unavailable in your region.')
+              hls.destroy()
+              return
+            }
+            if (statusCode === 456) {
+              setError('Stream blocked by portal. Datacenter IP detected, concurrent connection limit, or geo-restriction. Try a residential network or VPN.')
               hls.destroy()
               return
             }

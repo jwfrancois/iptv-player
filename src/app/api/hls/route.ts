@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
- * HLS proxy that fetches an m3u8 playlist, rewrites all segment URLs to
- * go through /api/stream (which pipes data through without buffering).
+ * HLS proxy — rewrites segment URLs to go through /api/stream (which pipes
+ * data through without buffering).
  *
- * No prefetch — hls.js handles segment loading sequentially, and our
- * stream proxy pipes data directly from portal to player.
+ * We use the proxy for segments because:
+ * 1. It lets us control connections (avoid portal 403 from too many connections)
+ * 2. It handles CORS (some CDN hosts don't send CORS headers consistently)
+ * 3. It provides error handling (friendly messages for 403/456/etc)
+ *
+ * The stream proxy PIPES data through — it does NOT buffer the entire segment.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -87,7 +91,6 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // upstream.url is the FINAL url after all redirects — use it as the base
     const finalUrl = upstream.url || target
     const text = await upstream.text()
     const rewritten = rewriteManifest(text, finalUrl)
