@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Search, Star, Tv, Film, MonitorPlay, ChevronRight, Loader2, Grid3x3 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { buildProxiedImageUrl } from '@/lib/iptv/types'
@@ -92,7 +91,7 @@ export function ChannelSidebar({
   const KindIcon = kindIcon
 
   return (
-    <div className="flex h-full flex-col bg-card/50 border-r">
+    <div className="flex h-full flex-col bg-card/50 border-r min-h-0">
       {/* Search */}
       <div className="p-3 border-b space-y-2">
         <div className="relative">
@@ -117,14 +116,14 @@ export function ChannelSidebar({
 
       <div className="flex flex-1 min-h-0">
         {/* Category column */}
-        <div className="w-32 sm:w-44 shrink-0 border-r overflow-hidden">
+        <div className="w-32 sm:w-44 shrink-0 border-r overflow-hidden flex flex-col">
           <button
-            className="w-full px-2 sm:px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted-foreground hover:bg-accent min-h-[44px]"
+            className="w-full px-2 sm:px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted-foreground hover:bg-accent min-h-[44px] shrink-0"
             onClick={() => onSelectCategory(null)}
           >
             All {kind === 'live' ? 'Channels' : kind === 'vod' ? 'Movies' : 'Series'}
           </button>
-          <ScrollArea className="h-[calc(100dvh-280px)] sm:h-[calc(100dvh-220px)]">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
             <div className="py-1">
               {categories.map((c) => (
                 <button
@@ -140,12 +139,12 @@ export function ChannelSidebar({
                 </button>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         </div>
 
         {/* Items column */}
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <div className="h-[calc(100dvh-280px)] sm:h-[calc(100dvh-220px)] overflow-y-auto overflow-x-hidden scrollbar-thin">
+        <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
             {loadingItems ? (
               <div className="flex items-center justify-center p-8">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
