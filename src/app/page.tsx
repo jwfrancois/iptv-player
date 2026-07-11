@@ -247,17 +247,17 @@ export default function IPTVPage() {
     (sel: SidebarSelection) => {
       setCurrentSelection(sel)
       if (sel.kind === 'live') {
-        // Live: pass the DIRECT portal URL to hls.js.
-        // The browser connects directly to the portal (not through our proxy),
-        // which avoids datacenter IP blocks (portal blocks our server IP but
-        // allows residential IPs). The portal sends CORS headers (*) so the
-        // browser can load both manifest and segments directly.
+        // Live: use proxied HLS URL. The proxy:
+        // 1. Fetches the manifest and rewrites segment URLs to /api/stream
+        // 2. Parallel-prefetches segments from the CDN (3x bandwidth)
+        // 3. Caches segments for instant delivery to hls.js
+        // This avoids portal connection limit issues (browser only connects
+        // to our proxy, not the portal directly).
         const rawUrl = buildLiveStreamUrl(config.portal, config.username, config.password, sel.id, 'm3u8')
-        setPlayerSrc(rawUrl)
+        setPlayerSrc(buildProxiedHlsUrl(rawUrl))
         setPlayerTitle(sel.name)
         setPlayerPoster(buildProxiedImageUrl(sel.poster))
         setPlayerContentType('hls')
-        // Add to recently watched
         addRecent({
           id: sel.id,
           name: sel.name,
@@ -283,7 +283,7 @@ export default function IPTVPage() {
         id: sel.id,
         name: sel.name,
         poster: sel.poster,
-        streamUrl: rawUrl, // Direct portal URL — browser connects directly
+        streamUrl: buildProxiedHlsUrl(rawUrl), // Proxied — parallel prefetch + cache
         contentType: 'hls',
       }
       setMosaicTiles((prev) => {
@@ -318,8 +318,7 @@ export default function IPTVPage() {
       if (!vodDialog.id) return
       const ext = vodDialog.ext || 'mp4'
       const rawUrl = buildVodStreamUrl(config.portal, config.username, config.password, vodDialog.id, ext)
-      // Direct portal URL — browser connects directly (avoids datacenter IP block)
-      setPlayerSrc(rawUrl)
+      setPlayerSrc(buildProxiedStreamUrl(rawUrl))
       setPlayerTitle(title)
       setPlayerPoster(buildProxiedImageUrl(vodDialog.poster))
       setPlayerContentType(ext === 'mp4' || ext === 'mkv' ? 'mp4' : 'auto')
@@ -331,8 +330,7 @@ export default function IPTVPage() {
   const handlePlayEpisode = useCallback(
     (episodeId: string, ext: string, title: string) => {
       const rawUrl = buildSeriesStreamUrl(config.portal, config.username, config.password, episodeId, ext)
-      // Direct portal URL — browser connects directly (avoids datacenter IP block)
-      setPlayerSrc(rawUrl)
+      setPlayerSrc(buildProxiedStreamUrl(rawUrl))
       setPlayerTitle(title)
       setPlayerContentType(ext === 'mp4' || ext === 'mkv' ? 'mp4' : 'auto')
       setCurrentSelection({ kind: 'series', id: episodeId, name: title })

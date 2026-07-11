@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { prefetchSegmentsFromManifest } from '@/lib/iptv/segment-cache'
 
 /**
- * HLS proxy — rewrites segment URLs to go through /api/stream (which pipes
- * data through without buffering).
+ * HLS proxy — fetches manifest, rewrites segment URLs to /api/stream,
+ * and triggers parallel prefetch of all segments.
  *
- * We use the proxy for segments because:
- * 1. It lets us control connections (avoid portal 403 from too many connections)
- * 2. It handles CORS (some CDN hosts don't send CORS headers consistently)
- * 3. It provides error handling (friendly messages for 403/456/etc)
- *
- * The stream proxy PIPES data through — it does NOT buffer the entire segment.
+ * The browser connects to our proxy (not the portal directly), which:
+ * 1. Avoids portal connection limit issues
+ * 2. Allows us to parallel-download segments from the CDN (3x bandwidth)
+ * 3. Caches segments for instant retries
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -70,12 +69,9 @@ export async function GET(req: NextRequest) {
 
     if (!upstream.ok) {
       let reason = 'Stream unavailable'
-      if (upstream.status === 403) reason = 'Channel forbidden (subscription tier, geo-restriction, or concurrent connection limit)'
+      if (upstream.status === 403) reason = 'Channel forbidden (connection limit or subscription)'
       else if (upstream.status === 404) reason = 'Channel not found or offline'
-      else if (upstream.status === 451 || upstream.status === 452) reason = 'Channel unavailable in your region'
-      else if (upstream.status === 456) reason = 'Stream blocked by portal. This may be due to datacenter IP detection, concurrent connection limit, or geo-restriction. Try connecting from a residential network or VPN.'
-      else if (upstream.status === 580) reason = 'Portal is overloaded. Try again in a moment'
-      else if (upstream.status >= 500) reason = 'Portal server error. Try again'
+      else if (upstream.status === 456) reason = 'Stream blocked by portal'
 
       return NextResponse.json(
         { error: reason, upstreamStatus: upstream.status },
@@ -94,6 +90,12 @@ export async function GET(req: NextRequest) {
     const finalUrl = upstream.url || target
     const text = await upstream.text()
     const rewritten = rewriteManifest(text, finalUrl)
+
+    // PARALLEL PREFETCH: Download all segments from this manifest in parallel.
+    // The CDN allows multiple connections at full speed (1.4MB/s each vs
+    // 400KB/s for single connection). This fills the cache so /api/stream
+    // gets instant cache hits.
+    prefetchSegmentsFromManifest(text, finalUrl)
 
     return new NextResponse(rewritten, {
       status: 200,

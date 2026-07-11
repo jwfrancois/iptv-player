@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCachedSegment } from '@/lib/iptv/segment-cache'
+import { getCachedSegment, waitForInFlight, setCachedSegment } from '@/lib/iptv/segment-cache'
 
 /**
- * Stream proxy — PIPES data through instead of buffering.
+ * Stream proxy with parallel-prefetch cache.
  *
- * CRITICAL: This streams the upstream response directly to the client.
- * The player receives bytes as they arrive and can start decoding immediately.
- * We never buffer the entire segment in memory.
+ * 1. Check cache → instant return (no CDN connection needed)
+ * 2. Check if segment is being prefetched → wait for it, return from cache
+ * 3. Cache miss → fetch from CDN, cache, return
+ *
+ * The prefetch system downloads segments in parallel (3x bandwidth),
+ * so most requests hit the cache.
  */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -17,7 +20,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing url param' }, { status: 400 })
   }
 
-  // Check cache — instant return if found
+  // 1. Check cache — instant return
   const cached = getCachedSegment(target)
   if (cached) {
     return new NextResponse(cached.buffer as any, {
@@ -32,7 +35,22 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  // Cache miss — stream directly from portal to player
+  // 2. Check if segment is being prefetched — wait for it
+  const inFlightResult = await waitForInFlight(target)
+  if (inFlightResult) {
+    return new NextResponse(inFlightResult.buffer as any, {
+      status: 200,
+      headers: {
+        'Content-Type': inFlightResult.contentType,
+        'Content-Length': inFlightResult.contentLength || String(inFlightResult.buffer.length),
+        'Cache-Control': 'public, max-age=60',
+        'Access-Control-Allow-Origin': '*',
+        'X-Cache': 'HIT-INFLIGHT',
+      },
+    })
+  }
+
+  // 3. Cache miss — fetch from CDN
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) IPTV-Player',
     Accept: '*/*',
@@ -50,24 +68,25 @@ export async function GET(req: NextRequest) {
 
     if (!upstream.ok && upstream.status !== 206) {
       return NextResponse.json(
-        { error: `Upstream ${upstream.status} ${upstream.statusText}` },
-        {
-          status: upstream.status,
-          headers: { 'Cache-Control': 'no-store' },
-        }
+        { error: `Upstream ${upstream.status}` },
+        { status: upstream.status, headers: { 'Cache-Control': 'no-store' } }
       )
     }
 
-    // Build response headers
+    const ct = upstream.headers.get('content-type') || 'video/mp2t'
+    const cl = upstream.headers.get('content-length') || ''
+    const buf = Buffer.from(await upstream.arrayBuffer())
+
+    if (buf.length > 1000) {
+      setCachedSegment(target, buf, ct, cl)
+    }
+
     const resHeaders = new Headers()
     resHeaders.set('Access-Control-Allow-Origin', '*')
     resHeaders.set('Access-Control-Allow-Headers', 'Range')
     resHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges')
     resHeaders.set('Cache-Control', 'public, max-age=60')
-
-    const ct = upstream.headers.get('content-type')
-    if (ct) resHeaders.set('Content-Type', ct)
-    const cl = upstream.headers.get('content-length')
+    resHeaders.set('Content-Type', ct)
     if (cl) resHeaders.set('Content-Length', cl)
     const cr = upstream.headers.get('content-range')
     if (cr) resHeaders.set('Content-Range', cr)
@@ -76,13 +95,7 @@ export async function GET(req: NextRequest) {
     }
     resHeaders.set('X-Cache', 'MISS')
 
-    if (!upstream.body) {
-      return NextResponse.json({ error: 'Empty body from upstream' }, { status: 502 })
-    }
-
-    // STREAM the body directly — no buffering!
-    const stream = upstream.body as unknown as NodeJS.ReadableStream
-    return new NextResponse(stream as any, {
+    return new NextResponse(buf as any, {
       status: upstream.status,
       headers: resHeaders,
     })
