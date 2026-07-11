@@ -18,29 +18,6 @@ interface VideoPlayerProps {
   showVisualizer?: boolean
 }
 
-/**
- * When hls.js reports a fatal network error, attempt to re-fetch the manifest
- * URL directly so we can read the X-IPTV-Reason header our proxy attaches to
- * error responses.
- */
-async function fetchErrorReason(src: string): Promise<string | null> {
-  try {
-    const res = await fetch(src, { method: 'GET', cache: 'no-store' })
-    if (!res.ok) {
-      const reason = res.headers.get('X-IPTV-Reason')
-      if (reason) return reason
-      if (res.status === 403) return 'Channel forbidden. Your subscription may not include this channel tier, or it is geo-restricted.'
-      if (res.status === 404) return 'Channel not found or currently offline.'
-      if (res.status === 456) return 'Stream blocked by portal. Datacenter IP detected, concurrent connection limit, or geo-restriction. Try a residential network or VPN.'
-      if (res.status >= 500) return 'Portal server error. Please try another channel.'
-      return `Stream error (HTTP ${res.status}). The channel may be unavailable.`
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
 export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisualizer: showVisualizerProp = false }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -133,8 +110,25 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
     }
     const onError = () => {
       if (destroyed) return
-      setLoading(false)
-      setError('Playback error. The stream may be offline or geo-restricted.')
+      // Don't show an error immediately — retry by reloading the video.
+      // The browser connects directly to the portal, and transient errors
+      // (connection limit, temporary network issues) often resolve on retry.
+      retryCountRef.current += 1
+      if (retryCountRef.current > 5) {
+        setLoading(false)
+        setError('Unable to play this stream. Try another channel.')
+      } else {
+        // Retry after 2s
+        setTimeout(() => {
+          if (!destroyed) {
+            const v = videoRef.current
+            if (v) {
+              v.load()
+              v.play().catch(() => {})
+            }
+          }
+        }, 2000)
+      }
     }
 
     // Track buffer health
@@ -260,44 +254,33 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
 
           setLoading(false)
 
-          // For network errors, check the HTTP status code and retry if transient
+          // For network errors, retry transient issues. Since the browser connects
+          // directly to the portal, most errors are transient (connection limit,
+          // temporary network issues). Keep retrying — don't show errors unless
+          // we've exhausted retries.
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response) {
             const statusCode = data.response.code
-            // 403 = connection limit — retry up to 5 times (transient)
-            if (statusCode === 403) {
-              retryCountRef.current += 1
-              if (retryCountRef.current > 5) {
-                setError('Channel forbidden after 5 retries. Connection limit may be reached. Try another channel.')
-                hls.destroy()
+            // 403 = connection limit — retry (transient)
+            // 456 = blocked from server IP, but user's browser may succeed — retry
+            // 404/401 = permanent, but retry a few times in case it's transient
+            retryCountRef.current += 1
+            if (retryCountRef.current > 10) {
+              // After 10 retries, show a generic error
+              if (statusCode === 404) {
+                setError('Channel not found or currently offline.')
+              } else if (statusCode === 401) {
+                setError('Authentication failed. Check your portal credentials.')
               } else {
-                // Retry after 2s
-                setTimeout(() => {
-                  if (!destroyed) hls.startLoad()
-                }, 2000)
+                setError('Unable to load stream after multiple retries. Try another channel.')
               }
-              return
-            }
-            // Permanent errors — show immediately, no retry
-            if (statusCode === 401) {
-              setError('Authentication failed. Check your portal credentials.')
               hls.destroy()
-              return
+            } else {
+              // Retry after 2s — keep buffering
+              setTimeout(() => {
+                if (!destroyed) hls.startLoad()
+              }, 2000)
             }
-            if (statusCode === 404) {
-              setError('Channel not found or currently offline.')
-              hls.destroy()
-              return
-            }
-            if (statusCode === 451 || statusCode === 452) {
-              setError('Channel unavailable in your region.')
-              hls.destroy()
-              return
-            }
-            if (statusCode === 456) {
-              setError('Stream blocked by portal. Datacenter IP detected, concurrent connection limit, or geo-restriction. Try a residential network or VPN.')
-              hls.destroy()
-              return
-            }
+            return
           }
 
           switch (data.type) {

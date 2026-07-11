@@ -247,9 +247,13 @@ export default function IPTVPage() {
     (sel: SidebarSelection) => {
       setCurrentSelection(sel)
       if (sel.kind === 'live') {
-        // Live: prefer m3u8 (HLS), fall back to ts
+        // Live: pass the DIRECT portal URL to hls.js.
+        // The browser connects directly to the portal (not through our proxy),
+        // which avoids datacenter IP blocks (portal blocks our server IP but
+        // allows residential IPs). The portal sends CORS headers (*) so the
+        // browser can load both manifest and segments directly.
         const rawUrl = buildLiveStreamUrl(config.portal, config.username, config.password, sel.id, 'm3u8')
-        setPlayerSrc(buildProxiedHlsUrl(rawUrl))
+        setPlayerSrc(rawUrl)
         setPlayerTitle(sel.name)
         setPlayerPoster(buildProxiedImageUrl(sel.poster))
         setPlayerContentType('hls')
@@ -279,7 +283,7 @@ export default function IPTVPage() {
         id: sel.id,
         name: sel.name,
         poster: sel.poster,
-        streamUrl: buildProxiedHlsUrl(rawUrl),
+        streamUrl: rawUrl, // Direct portal URL — browser connects directly
         contentType: 'hls',
       }
       setMosaicTiles((prev) => {
@@ -314,7 +318,8 @@ export default function IPTVPage() {
       if (!vodDialog.id) return
       const ext = vodDialog.ext || 'mp4'
       const rawUrl = buildVodStreamUrl(config.portal, config.username, config.password, vodDialog.id, ext)
-      setPlayerSrc(buildProxiedStreamUrl(rawUrl))
+      // Direct portal URL — browser connects directly (avoids datacenter IP block)
+      setPlayerSrc(rawUrl)
       setPlayerTitle(title)
       setPlayerPoster(buildProxiedImageUrl(vodDialog.poster))
       setPlayerContentType(ext === 'mp4' || ext === 'mkv' ? 'mp4' : 'auto')
@@ -326,7 +331,8 @@ export default function IPTVPage() {
   const handlePlayEpisode = useCallback(
     (episodeId: string, ext: string, title: string) => {
       const rawUrl = buildSeriesStreamUrl(config.portal, config.username, config.password, episodeId, ext)
-      setPlayerSrc(buildProxiedStreamUrl(rawUrl))
+      // Direct portal URL — browser connects directly (avoids datacenter IP block)
+      setPlayerSrc(rawUrl)
       setPlayerTitle(title)
       setPlayerContentType(ext === 'mp4' || ext === 'mkv' ? 'mp4' : 'auto')
       setCurrentSelection({ kind: 'series', id: episodeId, name: title })
