@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import Hls from 'hls.js'
+import Hls, { type LoaderContext, type LoaderResponse } from 'hls.js'
 import { Loader2, AlertCircle, Maximize2, Volume2, VolumeX, Play, Pause, Activity, Zap, PictureInPicture2, AudioLines } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Slider } from '@/components/ui/slider'
 import { AudioVisualizer } from './audio-visualizer'
 import { RadioSpinner } from './radio-spinner'
 import { cn } from '@/lib/utils'
+import { prefetchFromManifest, getCachedSegmentBlob, clearPrefetchCache, prefetchSegmentUrl } from '@/lib/iptv/client-prefetch'
 
 interface VideoPlayerProps {
   src: string
@@ -16,6 +17,39 @@ interface VideoPlayerProps {
   contentType?: 'hls' | 'mp4' | 'ts' | 'auto'
   /** Show audio visualizer overlay (for music channels). */
   showVisualizer?: boolean
+}
+
+// Custom fragment loader that uses client-side parallel prefetch cache.
+// The CDN rate-limits single connections to ~400KB/s (11s per segment),
+// but multiple connections get 1.4MB/s each (3s per segment).
+// We prefetch segments in parallel so hls.js gets instant cache hits.
+const ParallelPrefetchLoader = class extends Hls.DefaultConfig.loader {
+  load(context: LoaderContext, config: any, callbacks: any) {
+    // Check if this is a segment (fragment) request
+    if (context.url && context.type === 'fragment') {
+      const cached = getCachedSegmentBlob(context.url)
+      if (cached) {
+        // Cache HIT — return the prefetched segment instantly
+        const reader = new FileReader()
+        reader.onload = () => {
+          const data = reader.result as ArrayBuffer
+          const stats = {
+            loading: { start: performance.now(), first: performance.now(), end: performance.now() },
+            retry: 0,
+            total: data.byteLength,
+            chunkCount: 1,
+            bwEstimate: data.byteLength * 8 / 0.001,
+          }
+          const response: LoaderResponse = { url: context.url, data }
+          callbacks.onSuccess(response, stats, context, null as any)
+        }
+        reader.readAsArrayBuffer(cached)
+        return
+      }
+    }
+    // Cache MISS — use the default loader (downloads from CDN)
+    super.load(context, config, callbacks)
+  }
 }
 
 export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisualizer: showVisualizerProp = false }: VideoPlayerProps) {
@@ -159,39 +193,35 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
         hlsRef.current.destroy()
         hlsRef.current = null
       }
+      // Clear any previous prefetch cache
+      clearPrefetchCache()
+
       if (Hls.isSupported()) {
-        // Optimized config for live IPTV streaming:
-        // - lowLatencyMode OFF: we want stability, not edge-of-live
-        // - Large buffers: more resilience to network hiccups
-        // - Stay further behind live edge (6 segments vs default 3)
-        // - Aggressive retry on transient failures
         const hls = new Hls({
+          // Use our custom loader for parallel prefetch
+          loader: ParallelPrefetchLoader as any,
+
           // Worker for performance
           enableWorker: true,
-          // CRITICAL: disable low-latency mode. Low-latency tries to keep
-          // the player at the live edge with minimal buffer, which causes
-          // constant rebuffering on IPTV streams. We want a big stable buffer.
+          // CRITICAL: disable low-latency mode. We want a big stable buffer.
           lowLatencyMode: false,
 
-          // Buffer sizing — tuned for connection-limited prefetch (2 parallel).
-          // We can download ~2 segments per 3s cycle = ~20s of video per 3s.
-          // Target 30s buffer (3 segments ahead) — achievable with our limit.
-          backBufferLength: 60,         // keep 60s of played video (seek-back)
-          maxBufferLength: 30,          // target forward buffer (30s)
-          maxMaxBufferLength: 120,      // hard cap on forward buffer (2 min)
-          maxBufferSize: 100 * 1000 * 1000, // 100MB cap (FHD segments are ~8MB each)
-          maxBufferHole: 0.5,           // tolerate small gaps
+          // Buffer sizing — large target because we parallel-prefetch
+          backBufferLength: 60,
+          maxBufferLength: 60,          // target 60s forward buffer
+          maxMaxBufferLength: 180,      // hard cap 3 min
+          maxBufferSize: 150 * 1000 * 1000, // 150MB
+          maxBufferHole: 0.5,
 
-          // Live sync — stay closer to the edge since we have less prefetch.
-          // 3 segments (~30s) — standard for live TV.
+          // Live sync
           liveSyncDurationCount: 3,
-          liveMaxLatencyDurationCount: 12,  // if we fall too far behind, catch up
+          liveMaxLatencyDurationCount: 12,
 
-          // Retry logic for flaky portal servers
-          fragLoadingTimeOut: 20000,        // 20s before timeout
-          fragLoadingMaxRetry: 6,           // 6 retries per fragment
-          fragLoadingRetryDelay: 500,       // start at 500ms
-          fragLoadingMaxRetryTimeoutMs: 64000, // cap at 64s
+          // Retry logic
+          fragLoadingTimeOut: 20000,
+          fragLoadingMaxRetry: 6,
+          fragLoadingRetryDelay: 500,
+          fragLoadingMaxRetryTimeoutMs: 64000,
           manifestLoadingTimeOut: 15000,
           manifestLoadingMaxRetry: 3,
           manifestLoadingRetryDelay: 1000,
@@ -199,17 +229,17 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
           levelLoadingMaxRetry: 4,
           levelLoadingRetryDelay: 1000,
 
-          // ABR (adaptive bitrate) — let hls.js pick the best level
-          startLevel: -1,  // auto-select based on bandwidth
-          abrEwmaDefaultEstimate: 2 * 1000 * 1000, // assume 2Mbps initially
+          // ABR
+          startLevel: -1,
+          abrEwmaDefaultEstimate: 2 * 1000 * 1000,
           abrBandWidthFactor: 0.95,
           abrBandWidthUpFactor: 0.7,
           abrEwmaFastLive: 5.0,
 
-          // Misc stability
+          // Misc
           startFragPrefetch: true,
           testBandwidth: true,
-          progressive: false,  // don't use progressive fetch (can stall)
+          progressive: false,
         })
         hlsRef.current = hls
         hls.loadSource(src)
@@ -224,6 +254,16 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
               setQuality(level.height ? `${level.height}p` : `${Math.round((level.bitrate || 0) / 1000)}kbps`)
             }
           }
+          // Trigger parallel prefetch of segments from this manifest
+          // Fetch the manifest text to get segment URLs
+          fetch(src, { cache: 'no-store' })
+            .then((res) => res.text())
+            .then((text) => {
+              if (!destroyed) {
+                prefetchFromManifest(src, text)
+              }
+            })
+            .catch(() => {})
           video.play().catch(() => {})
         })
 
@@ -241,6 +281,22 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
           if (video.buffered.length) {
             const end = video.buffered.end(video.buffered.length - 1)
             setBufferHealth(Math.max(0, end - video.currentTime))
+          }
+        })
+
+        // When the live manifest is reloaded, prefetch new segments in parallel
+        hls.on(Hls.Events.LEVEL_LOADED, (_evt, data) => {
+          if (destroyed) return
+          if (data.details && data.details.fragments) {
+            // Directly prefetch segment URLs from the loaded level
+            const fragUrls = data.details.fragments
+              .map((f: any) => f.url)
+              .filter((u: any) => u)
+            // Prefetch up to 3 segments in parallel (the browser handles
+            // the parallel fetch calls)
+            for (const u of fragUrls.slice(0, 3)) {
+              prefetchSegmentUrl(u)
+            }
           }
         })
 
