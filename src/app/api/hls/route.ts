@@ -68,6 +68,44 @@ export async function GET(req: NextRequest) {
     })
 
     if (!upstream.ok) {
+      // On 403 (connection limit), auto-kill zombie connections and retry once
+      if (upstream.status === 403) {
+        try {
+          const url = new URL(target)
+          const portalBase = `${url.protocol}//${url.host}`
+          const parts = url.pathname.split('/')
+          if (parts.length >= 4) {
+            const username = parts[2]
+            const password = parts[3]
+            await fetch(`${portalBase}/player_api.php?username=${username}&password=${password}&action=kill_active_connections`, { cache: 'no-store' }).catch(() => {})
+          }
+          // Retry the manifest fetch after killing connections
+          const retry = await fetch(target, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) IPTV-Player',
+              Accept: '*/*',
+              Referer: new URL(target).origin + '/',
+            },
+            cache: 'no-store',
+            redirect: 'follow',
+          })
+          if (retry.ok) {
+            const finalUrl = retry.url || target
+            const text = await retry.text()
+            const rewritten = rewriteManifest(text, finalUrl)
+            prefetchSegmentsFromManifest(text, finalUrl)
+            return new NextResponse(rewritten, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/vnd.apple.mpegurl',
+                'Cache-Control': 'no-store',
+                'Access-Control-Allow-Origin': '*',
+              },
+            })
+          }
+        } catch {}
+      }
+
       let reason = 'Stream unavailable'
       if (upstream.status === 403) reason = 'Channel forbidden (connection limit or subscription)'
       else if (upstream.status === 404) reason = 'Channel not found or offline'

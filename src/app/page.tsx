@@ -17,6 +17,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { cn } from '@/lib/utils'
 import {
   ChannelSidebar,
   type ContentKind,
@@ -32,6 +33,7 @@ import { HeroBanner } from '@/components/iptv/hero-banner'
 import { MosaicView, type MosaicTile } from '@/components/iptv/mosaic-view'
 import { PortalSwitcher } from '@/components/iptv/portal-switcher'
 import { PortalManagerDialog } from '@/components/iptv/portal-manager-dialog'
+import { InstallPrompt } from '@/components/iptv/install-prompt'
 import { usePortals } from '@/lib/iptv/usePortals'
 import {
   DEFAULT_CONFIG,
@@ -116,6 +118,7 @@ export default function IPTVPage() {
     getVodStreams,
     getSeriesCategories,
     getSeries,
+    killActiveConnections,
   } = iptv
 
   const [activeTab, setActiveTab] = useState<ContentKind>('live')
@@ -243,16 +246,21 @@ export default function IPTVPage() {
      
   }, [auth, activeTab, selectedCat])
 
+  // Periodically refresh auth to update connection count (every 30s)
+  useEffect(() => {
+    if (!isAuthed) return
+    const interval = setInterval(() => {
+      authenticate(activeConfig).catch(() => {})
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [isAuthed, activeConfig, authenticate])
+
   const handleSelectItem = useCallback(
     (sel: SidebarSelection) => {
       setCurrentSelection(sel)
       if (sel.kind === 'live') {
-        // Live: use proxied HLS URL. The proxy:
-        // 1. Fetches the manifest and rewrites segment URLs to /api/stream
-        // 2. Parallel-prefetches segments from the CDN (3x bandwidth)
-        // 3. Caches segments for instant delivery to hls.js
-        // This avoids portal connection limit issues (browser only connects
-        // to our proxy, not the portal directly).
+        // Live: use proxied HLS URL with smart fallback.
+        // The video player will auto-fallback to .ts if .m3u8 fails.
         const rawUrl = buildLiveStreamUrl(config.portal, config.username, config.password, sel.id, 'm3u8')
         setPlayerSrc(buildProxiedHlsUrl(rawUrl))
         setPlayerTitle(sel.name)
@@ -444,9 +452,22 @@ export default function IPTVPage() {
                 <Wifi className="h-3.5 w-3.5 shrink-0" />
                 <span className="font-medium hidden sm:inline">{config.username}</span>
                 {auth?.user_info?.active_cons && (
-                  <span className="text-muted-foreground text-[10px]">
+                  <button
+                    className={cn(
+                      'text-[10px] px-1.5 py-0.5 rounded font-mono',
+                      Number(auth.user_info.active_cons) >= Number(auth.user_info.max_connections)
+                        ? 'bg-red-500/20 text-red-600 dark:text-red-400 animate-pulse'
+                        : 'bg-muted text-muted-foreground'
+                    )}
+                    onClick={() => {
+                      if (confirm('Kill all active connections? This will disconnect other devices using this portal.')) {
+                        killActiveConnections().then(() => authenticate(activeConfig))
+                      }
+                    }}
+                    title="Click to kill zombie connections"
+                  >
                     {auth.user_info.active_cons}/{auth.user_info.max_connections}
-                  </span>
+                  </button>
                 )}
                 {trial && (
                   <span className="ml-1 px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 text-[10px]">
@@ -536,6 +557,7 @@ export default function IPTVPage() {
                 poster={playerPoster}
                 contentType={playerContentType}
                 showVisualizer={isMusicChannel}
+                fallbackSrc={currentSelection?.kind === 'live' ? buildProxiedStreamUrl(buildLiveStreamUrl(config.portal, config.username, config.password, currentSelection.id, 'ts')) : undefined}
               />
             ) : (
               <div className="aspect-video flex flex-col items-center justify-center text-white/60 gap-3 px-4">
@@ -757,6 +779,8 @@ export default function IPTVPage() {
         onRemove={removePortal}
         onTest={testPortal}
       />
+
+      <InstallPrompt />
     </div>
   )
 }

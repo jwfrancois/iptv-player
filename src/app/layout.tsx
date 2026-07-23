@@ -15,12 +15,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "IPTV Player",
-  description: "Stream live TV, movies, and series from your Xtream Codes IPTV subscription.",
+  description: "Stream live TV, movies, and series from your IPTV subscription.",
   keywords: ["IPTV", "Xtream Codes", "Live TV", "Streaming", "Player"],
   authors: [{ name: "IPTV Player" }],
-  icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
-  },
+  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     title: "IPTV Player",
@@ -50,6 +48,17 @@ export default function RootLayout({
       >
         {children}
         <Toaster />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', () => {
+                  navigator.serviceWorker.register('/sw.js').catch(() => {});
+                });
+              }
+            `,
+          }}
+        />
       </body>
     </html>
   );

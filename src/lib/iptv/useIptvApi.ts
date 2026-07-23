@@ -142,6 +142,10 @@ export function useIptvApi() {
       }).then((res) => (res.epg_listings || []).map(decodeEpgProgram)),
     [config]
   )
+  const killActiveConnections = useCallback(
+    () => api<any>(config, { action: 'kill_active_connections' }),
+    [config]
+  )
 
   const updateConfig = useCallback((next: PortalConfig) => {
     setConfig(next)
@@ -164,5 +168,6 @@ export function useIptvApi() {
     getSeries,
     getSeriesInfo,
     getShortEpg,
+    killActiveConnections,
   }
 }

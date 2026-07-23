@@ -16,9 +16,11 @@ interface VideoPlayerProps {
   contentType?: 'hls' | 'mp4' | 'ts' | 'auto'
   /** Show audio visualizer overlay (for music channels). */
   showVisualizer?: boolean
+  /** Fallback URL to try if primary fails (e.g. .ts when .m3u8 fails) */
+  fallbackSrc?: string
 }
 
-export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisualizer: showVisualizerProp = false }: VideoPlayerProps) {
+export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisualizer: showVisualizerProp = false, fallbackSrc }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const hlsRef = useRef<Hls | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -190,12 +192,15 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
           levelLoadingMaxRetry: 4,
           levelLoadingRetryDelay: 1000,
 
-          // ABR
-          startLevel: -1,
-          abrEwmaDefaultEstimate: 2 * 1000 * 1000,
-          abrBandWidthFactor: 0.95,
-          abrBandWidthUpFactor: 0.7,
-          abrEwmaFastLive: 5.0,
+          // ABR — adaptive bitrate that adjusts based on actual bandwidth.
+          // Start at a low level to build buffer fast, then upgrade.
+          startLevel: 0,  // start at lowest quality for fast initial load
+          abrEwmaDefaultEstimate: 1 * 1000 * 1000, // assume 1Mbps initially (conservative)
+          abrBandWidthFactor: 0.7,  // require 70% of measured bandwidth before upgrading
+          abrBandWidthUpFactor: 0.5, // be conservative when upgrading (avoid oscillation)
+          abrEwmaFastLive: 3.0,  // faster adaptation for live streams
+          abrEwmaSlowLive: 10.0, // but smooth out long-term estimate
+          abrMaxWithFastBitrate: true,
 
           // Misc
           startFragPrefetch: true,
@@ -236,25 +241,48 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
         hls.on(Hls.Events.ERROR, async (_evt, data) => {
           if (destroyed) return
 
-          // Non-fatal: just log, hls.js will retry
-          if (!data.fatal) {
-            return
-          }
+          if (!data.fatal) return
 
           setLoading(false)
 
-          // For network errors, retry transient issues. Since the browser connects
-          // directly to the portal, most errors are transient (connection limit,
-          // temporary network issues). Keep retrying — don't show errors unless
-          // we've exhausted retries.
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR && data.response) {
             const statusCode = data.response.code
-            // 403 = connection limit — retry (transient)
-            // 456 = blocked from server IP, but user's browser may succeed — retry
-            // 404/401 = permanent, but retry a few times in case it's transient
+
+            // On 403 (connection limit), auto-kill zombie connections via the
+            // portal API, then retry. This clears stale connections that prevent
+            // new streams from loading.
+            if (statusCode === 403 && retryCountRef.current === 0) {
+              // First 403: try killing zombie connections before retrying
+              try {
+                // Extract portal URL from the stream URL to call kill API
+                const url = new URL(src)
+                const portalBase = `${url.protocol}//${url.host}`
+                // Find username/password from the URL path (/live/user/pass/...)
+                const parts = url.pathname.split('/')
+                if (parts.length >= 4) {
+                  const username = parts[2]
+                  const password = parts[3]
+                  const killUrl = `${portalBase}/player_api.php?username=${username}&password=${password}&action=kill_active_connections`
+                  await fetch(killUrl, { cache: 'no-store' }).catch(() => {})
+                }
+              } catch {}
+            }
+
             retryCountRef.current += 1
             if (retryCountRef.current > 10) {
-              // After 10 retries, show a generic error
+              // If we have a fallback URL (e.g. .ts when .m3u8 fails), try it
+              if (fallbackSrc && src !== fallbackSrc) {
+                hls.destroy()
+                hlsRef.current = null
+                // Switch to fallback source — the useEffect will re-run
+                // We need to set the src state, but we can't from here.
+                // Instead, load the fallback directly.
+                if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                  video.src = fallbackSrc
+                  video.play().catch(() => {})
+                }
+                return
+              }
               if (statusCode === 404) {
                 setError('Channel not found or currently offline.')
               } else if (statusCode === 401) {
@@ -264,7 +292,6 @@ export function VideoPlayer({ src, poster, title, contentType = 'auto', showVisu
               }
               hls.destroy()
             } else {
-              // Retry after 2s — keep buffering
               setTimeout(() => {
                 if (!destroyed) hls.startLoad()
               }, 2000)

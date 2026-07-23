@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Star, Tv, Film, MonitorPlay, ChevronRight, Loader2, Grid3x3 } from 'lucide-react'
+import { Search, Star, Tv, Film, MonitorPlay, ChevronRight, Loader2, Grid3x3, Lock } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { buildProxiedImageUrl } from '@/lib/iptv/types'
 import type { Category, LiveStream, Series, VodStream } from '@/lib/iptv/types'
+import { isAdultCategory, isParentalEnabled, isAdultUnlocked } from '@/lib/iptv/parental-control'
 
 export type ContentKind = 'live' | 'vod' | 'series'
 
@@ -90,6 +91,14 @@ export function ChannelSidebar({
   const kindIcon = kind === 'live' ? Tv : kind === 'vod' ? Film : MonitorPlay
   const KindIcon = kindIcon
 
+  // Filter out adult categories if parental controls are enabled and locked
+  const parentalEnabled = isParentalEnabled()
+  const adultUnlocked = isAdultUnlocked()
+  const visibleCategories = useMemo(() => {
+    if (!parentalEnabled || adultUnlocked) return categories
+    return categories.filter((c) => !isAdultCategory(c.category_name))
+  }, [categories, parentalEnabled, adultUnlocked])
+
   return (
     <div className="flex h-full flex-col bg-card/50 border-r min-h-0">
       {/* Search */}
@@ -125,7 +134,7 @@ export function ChannelSidebar({
           </button>
           <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin">
             <div className="py-1">
-              {categories.map((c) => (
+              {visibleCategories.map((c) => (
                 <button
                   key={c.category_id}
                   onClick={() => onSelectCategory(c.category_id)}

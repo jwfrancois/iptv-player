@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -12,9 +12,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Plus, Trash2, Pencil, Check, X, Loader2, Server, Wifi, WifiOff } from 'lucide-react'
+import { Plus, Trash2, Pencil, Check, X, Loader2, Server, Wifi, WifiOff, Lock, Unlock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Portal, PortalConfig } from '@/lib/iptv/usePortals'
+import { isParentalEnabled, setParentalPin, removeParentalPin, unlockAdult, lockAdult, isAdultUnlocked } from '@/lib/iptv/parental-control'
 
 interface PortalManagerDialogProps {
   open: boolean
@@ -50,6 +51,15 @@ export function PortalManagerDialog({
   const [editing, setEditing] = useState<EditingState | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [parentalPin, setParentalPinInput] = useState('')
+  const [parentalError, setParentalError] = useState('')
+  const [parentalEnabled, setParentalEnabledState] = useState(false)
+  const [adultUnlocked, setAdultUnlockedState] = useState(false)
+
+  useEffect(() => {
+    setParentalEnabledState(isParentalEnabled())
+    setAdultUnlockedState(isAdultUnlocked())
+  }, [open])
 
   const startAdd = () => {
     setEditing({
@@ -214,6 +224,105 @@ export function PortalManagerDialog({
               <Plus className="h-4 w-4 mr-1.5" />
               Add Portal
             </Button>
+
+            {/* Parental Controls */}
+            <div className="rounded-lg border p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <Lock className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Parental Controls</span>
+              </div>
+              {!parentalEnabled ? (
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    maxLength={4}
+                    placeholder="Set 4-digit PIN"
+                    value={parentalPin}
+                    onChange={(e) => setParentalPinInput(e.target.value.replace(/\D/g, ''))}
+                    className="h-8"
+                  />
+                  <Button
+                    size="sm"
+                    className="h-8 shrink-0"
+                    disabled={parentalPin.length !== 4}
+                    onClick={() => {
+                      setParentalPin(parentalPin)
+                      setParentalEnabledState(true)
+                      setParentalPinInput('')
+                    }}
+                  >
+                    Enable
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-xs">
+                  {adultUnlocked ? (
+                    <>
+                      <Unlock className="h-3.5 w-3.5 text-green-500" />
+                      <span className="text-green-600 dark:text-green-400">Adult content unlocked (4h)</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 px-2 text-xs ml-auto"
+                        onClick={() => {
+                          lockAdult()
+                          setAdultUnlockedState(false)
+                        }}
+                      >
+                        Lock
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="h-3.5 w-3.5 text-amber-500" />
+                      <span className="text-muted-foreground">Adult content locked</span>
+                      <div className="flex gap-1 ml-auto">
+                        <Input
+                          type="password"
+                          maxLength={4}
+                          placeholder="PIN"
+                          value={parentalPin}
+                          onChange={(e) => setParentalPinInput(e.target.value.replace(/\D/g, ''))}
+                          className="h-6 w-16 text-xs"
+                        />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-6 px-2 text-xs"
+                          disabled={parentalPin.length !== 4}
+                          onClick={() => {
+                            if (unlockAdult(parentalPin)) {
+                              setAdultUnlockedState(true)
+                              setParentalPinInput('')
+                              setParentalError('')
+                            } else {
+                              setParentalError('Wrong PIN')
+                            }
+                          }}
+                        >
+                          Unlock
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-2 text-xs text-red-500"
+                    onClick={() => {
+                      removeParentalPin()
+                      setParentalEnabledState(false)
+                      setAdultUnlockedState(false)
+                    }}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              )}
+              {parentalError && (
+                <p className="text-[10px] text-red-500">{parentalError}</p>
+              )}
+            </div>
           </div>
         )}
 
