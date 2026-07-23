@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -70,6 +70,7 @@ export function DetailModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] p-0 overflow-hidden gap-0">
+        <DialogTitle className="sr-only">{item.title}</DialogTitle>
         {/* Backdrop */}
         <div className="relative h-48 md:h-64 w-full overflow-hidden">
           {backdrop ? (
