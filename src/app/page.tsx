@@ -11,6 +11,7 @@ import { HeroCarousel, type HeroItem } from '@/components/cinematic/hero-carouse
 import { ContentRail, type RailItem } from '@/components/cinematic/content-rail'
 import { DetailModal, type DetailData } from '@/components/cinematic/detail-modal'
 import { SearchView } from '@/components/cinematic/search-view'
+import { BrowseGrid } from '@/components/cinematic/browse-grid'
 import { HeroSkeleton, RailSkeleton } from '@/components/cinematic/shimmer-skeleton'
 import { VideoPlayer } from '@/components/iptv/video-player'
 import { PortalSwitcher } from '@/components/iptv/portal-switcher'
@@ -132,21 +133,26 @@ export default function IPTVPage() {
     return () => clearInterval(interval)
   }, [isAuthed, activeConfig, authenticate])
 
-  // Convert content to rail items
-  const liveRailItems: RailItem[] = useMemo(() =>
-    liveStreams.slice(0, 30).map((ch) => ({
+  // Convert content to rail items — FULL lists (not sliced) for BrowseGrid
+  const allLiveRailItems: RailItem[] = useMemo(() =>
+    liveStreams.map((ch) => ({
       id: ch.stream_id, title: ch.name, poster: ch.stream_icon, kind: 'live' as const,
     })), [liveStreams])
 
-  const vodRailItems: RailItem[] = useMemo(() =>
-    vodStreams.slice(0, 30).map((m) => ({
+  const allVodRailItems: RailItem[] = useMemo(() =>
+    vodStreams.map((m) => ({
       id: m.stream_id, title: m.name, poster: m.stream_icon, rating: m.rating, kind: 'vod' as const,
     })), [vodStreams])
 
-  const seriesRailItems: RailItem[] = useMemo(() =>
-    seriesList.slice(0, 30).map((s) => ({
+  const allSeriesRailItems: RailItem[] = useMemo(() =>
+    seriesList.map((s) => ({
       id: s.series_id, title: s.name, poster: s.cover, rating: s.rating, kind: 'series' as const,
     })), [seriesList])
+
+  // Sliced versions for Home page rails
+  const liveRailItems = useMemo(() => allLiveRailItems.slice(0, 30), [allLiveRailItems])
+  const vodRailItems = useMemo(() => allVodRailItems.slice(0, 30), [allVodRailItems])
+  const seriesRailItems = useMemo(() => allSeriesRailItems.slice(0, 30), [allSeriesRailItems])
 
   // Group live channels by category for rails
   const liveCategoryRails = useMemo(() => {
@@ -457,33 +463,44 @@ export default function IPTVPage() {
               )}
             </>
           ) : cinematicTab === 'live' ? (
-            <>
-              <ContentRail title="All Channels" items={liveRailItems} onSelect={handleSelectItem}
-                onToggleMyList={(item) => toggleMyList({ id: item.id, title: item.title, poster: item.poster, kind: item.kind })}
-                myListIds={myListIds} />
-              {liveCategoryRails.map((rail) => (
-                <ContentRail key={`live-${rail.category.category_id}`} title={rail.category.category_name}
-                  items={rail.items} onSelect={handleSelectItem}
-                  onToggleMyList={(item) => toggleMyList({ id: item.id, title: item.title, poster: item.poster, kind: item.kind })}
-                  myListIds={myListIds} />
-              ))}
-            </>
-          ) : cinematicTab === 'movies' ? (
-            <>
-              <ContentRail title="All Movies" items={vodRailItems} onSelect={handleSelectItem}
-                onToggleMyList={(item) => toggleMyList({ id: item.id, title: item.title, poster: item.poster, kind: item.kind })}
-                myListIds={myListIds} />
-              {vodCategoryRails.map((rail) => (
-                <ContentRail key={`vod-${rail.category.category_id}`} title={rail.category.category_name}
-                  items={rail.items} onSelect={handleSelectItem}
-                  onToggleMyList={(item) => toggleMyList({ id: item.id, title: item.title, poster: item.poster, kind: item.kind })}
-                  myListIds={myListIds} />
-              ))}
-            </>
-          ) : cinematicTab === 'series' ? (
-            <ContentRail title="All Series" items={seriesRailItems} onSelect={handleSelectItem}
+            <BrowseGrid
+              title="Live TV"
+              categories={liveCats}
+              allItems={allLiveRailItems}
+              categoryOfItem={(item) => {
+                const ch = liveStreams.find((c) => c.stream_id === item.id)
+                return ch?.category_id
+              }}
+              onSelect={handleSelectItem}
               onToggleMyList={(item) => toggleMyList({ id: item.id, title: item.title, poster: item.poster, kind: item.kind })}
-              myListIds={myListIds} />
+              myListIds={myListIds}
+            />
+          ) : cinematicTab === 'movies' ? (
+            <BrowseGrid
+              title="Movies"
+              categories={vodCats}
+              allItems={allVodRailItems}
+              categoryOfItem={(item) => {
+                const m = vodStreams.find((v) => v.stream_id === item.id)
+                return m?.category_id
+              }}
+              onSelect={handleSelectItem}
+              onToggleMyList={(item) => toggleMyList({ id: item.id, title: item.title, poster: item.poster, kind: item.kind })}
+              myListIds={myListIds}
+            />
+          ) : cinematicTab === 'series' ? (
+            <BrowseGrid
+              title="Series"
+              categories={seriesCats}
+              allItems={allSeriesRailItems}
+              categoryOfItem={(item) => {
+                const s = seriesList.find((sr) => sr.series_id === item.id)
+                return s?.category_id
+              }}
+              onSelect={handleSelectItem}
+              onToggleMyList={(item) => toggleMyList({ id: item.id, title: item.title, poster: item.poster, kind: item.kind })}
+              myListIds={myListIds}
+            />
           ) : cinematicTab === 'search' ? (
             <SearchView
               liveChannels={liveStreams}
