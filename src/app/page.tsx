@@ -246,6 +246,9 @@ export default function IPTVPage() {
      
   }, [auth, activeTab, selectedCat])
 
+  // Auth state — defined early so it can be used in effects below
+  const isAuthed = auth?.user_info?.auth === 1
+
   // Periodically refresh auth to update connection count (every 30s)
   useEffect(() => {
     if (!isAuthed) return
@@ -416,7 +419,6 @@ export default function IPTVPage() {
   // Set of channel IDs currently in the mosaic (for sidebar indicator)
   const mosaicIds = useMemo(() => new Set(mosaicTiles.map((t) => String(t.id))), [mosaicTiles])
 
-  const isAuthed = auth?.user_info?.auth === 1
   const trial = auth?.user_info?.is_trial === '1'
   const expDate = auth?.user_info?.exp_date
     ? new Date(Number(auth.user_info.exp_date) * 1000).toLocaleDateString()
